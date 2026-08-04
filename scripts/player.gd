@@ -1,0 +1,829 @@
+class_name Player
+extends CharacterBody2D
+
+signal respawned(reason: RespawnReason)
+signal health_changed(current: int, maximum: int)
+signal material_changed(total: int)
+signal progression_changed(level: int, current_experience: int, required_experience: int, maximum_level_reached: bool)
+signal level_up(level: int, levels_gained: int)
+signal stats_changed
+signal equipment_changed
+signal equipment_inventory_changed
+signal equipment_equip_failed(message: String)
+
+enum RespawnReason {
+	DEATH,
+	MANUAL_RESET,
+}
+
+enum AttackType {
+	LIGHT,
+	HEAVY,
+}
+
+enum State {
+	IDLE,
+	WALK,
+	SPRINT,
+	JUMP,
+	FALL,
+	CROUCH,
+	ATTACK,
+	HIT,
+	DEAD,
+}
+
+const ONE_WAY_LAYER := 3
+const DROP_THROUGH_TIME := 0.2
+const DROP_THROUGH_SPEED := 100.0
+const STARDUST_FRAGMENT_ID := &"stardust_fragment"
+const EQUIPMENT_MODIFIER_SOURCE := &"equipment"
+const PLAYER_ATTACK_PROJECTILE_SCENE := preload("res://scenes/combat/player_attack_projectile.tscn")
+
+@export var move_speed := 280.0
+@export var sprint_speed := 430.0
+@export var double_tap_window := 0.24
+@export var air_acceleration := 1100.0
+@export var gravity := 1650.0
+@export var jump_velocity := -590.0
+@export var fall_gravity_multiplier := 1.35
+@export_category("Progression")
+@export var progression_definition: PlayerProgressionDefinition
+@export var profession_definition: ProfessionDefinition
+@export_category("Light Attack")
+@export var light_attack_duration := 0.38
+@export var light_attack_hit_start := 0.10
+@export var light_attack_hit_end := 0.19
+@export var light_attack_walk_speed_multiplier := 0.45
+@export var light_attack_repeat_interval := 0.55
+@export_category("Heavy Attack")
+@export var heavy_attack_duration := 0.85
+@export var heavy_attack_hit_start := 0.32
+@export var heavy_attack_hit_end := 0.48
+@export var heavy_attack_walk_speed_multiplier := 0.18
+@export var heavy_attack_repeat_interval := 1.20
+@export_category("Health")
+@export var hit_stun_time := 0.25
+@export var invulnerability_time := 0.8
+@export var damage_knockback_speed := 240.0
+@export var death_respawn_delay := 0.8
+
+var current_state := State.IDLE
+var _facing_direction := 1.0
+var _last_left_press_time := -double_tap_window
+var _last_right_press_time := -double_tap_window
+var _sprint_direction := 0.0
+var _elapsed_time := 0.0
+var _drop_through_timer := 0.0
+var _attack_elapsed := 0.0
+var _attack_direction := 1.0
+var _attack_hitbox_active := false
+var _current_attack_type := AttackType.LIGHT
+var _last_auto_attack_type := AttackType.HEAVY
+var _current_attack_critical := false
+var _current_attack_profile: PlayerBasicAttackProfile
+var _current_attack_damage := 1
+var _current_attack_projectile_spawned := false
+var _next_light_attack_time := 0.0
+var _next_heavy_attack_time := 0.0
+var _health := 10
+var _hit_stun_timer := 0.0
+var _invulnerability_timer := 0.0
+var _death_respawn_timer := 0.0
+var _spawn_position := Vector2.ZERO
+var _stardust_fragments := 0
+var _stats := PlayerStats.new()
+var _equipped_items: Dictionary = {}
+var _equipment_inventory: Dictionary = {}
+
+@onready var _standing_collision: CollisionShape2D = $StandingCollision
+@onready var _crouching_collision: CollisionShape2D = $CrouchingCollision
+@onready var _visual: Node2D = $Visual
+@onready var _hurtbox: Hurtbox = $PlayerHurtbox
+@onready var _hurtbox_collision: CollisionShape2D = $PlayerHurtbox/CollisionShape2D
+@onready var _attack_hitbox: AttackHitbox = $AttackHitbox
+@onready var _attack_collision: CollisionShape2D = $AttackHitbox/CollisionShape2D
+
+
+func _ready() -> void:
+	if _attack_collision.shape != null:
+		_attack_collision.shape = _attack_collision.shape.duplicate()
+	_stats.initialize(progression_definition)
+	_apply_starting_equipment()
+	_stats.rng.randomize()
+	_spawn_position = global_position
+	_health = get_max_health()
+	_set_crouched(false)
+	_visual.set_facing_direction(_facing_direction)
+	player_ready.call_deferred()
+
+
+func player_ready() -> void:
+	health_changed.emit(_health, get_max_health())
+	material_changed.emit(_stardust_fragments)
+	_emit_progression_changed()
+
+
+func _physics_process(delta: float) -> void:
+	_elapsed_time += delta
+	_update_invulnerability(delta)
+	if Input.is_action_just_pressed("reset"):
+		respawn(RespawnReason.MANUAL_RESET)
+		return
+	if current_state == State.DEAD:
+		_update_dead(delta)
+		return
+	if current_state == State.HIT:
+		_update_hit(delta)
+		return
+
+	_update_drop_through(delta)
+	_update_sprint_input()
+	_handle_attack_input()
+	_update_attack(delta)
+	if current_state != State.ATTACK:
+		_handle_ground_actions()
+	_apply_horizontal_movement(delta)
+	_apply_vertical_movement(delta)
+	move_and_slide()
+	_resolve_state()
+
+
+func receive_hit(amount: int, _source: Node, hit_direction: float) -> void:
+	if current_state == State.DEAD or _invulnerability_timer > 0.0:
+		return
+	_cancel_attack()
+	var final_amount := _stats.mitigate_physical_damage(amount)
+	_health = maxi(_health - final_amount, 0)
+	health_changed.emit(_health, get_max_health())
+	if _health <= 0:
+		_enter_dead()
+		return
+	_invulnerability_timer = invulnerability_time
+	_hit_stun_timer = hit_stun_time
+	velocity.x = signf(hit_direction) * damage_knockback_speed
+	_set_state(State.HIT)
+
+
+func _update_hit(delta: float) -> void:
+	_hit_stun_timer = maxf(_hit_stun_timer - delta, 0.0)
+	if not is_on_floor():
+		velocity.y += gravity * delta
+	velocity.x = move_toward(velocity.x, 0.0, damage_knockback_speed * 4.0 * delta)
+	move_and_slide()
+	if _hit_stun_timer == 0.0:
+		_set_state(State.IDLE if is_on_floor() else State.FALL)
+
+
+func _enter_dead() -> void:
+	_cancel_attack()
+	_clear_owned_projectiles()
+	current_state = State.DEAD
+	velocity = Vector2.ZERO
+	_death_respawn_timer = death_respawn_delay
+	_hurtbox.enabled = false
+	_hurtbox_collision.set_deferred("disabled", true)
+	_visual.modulate = Color(0.45, 0.45, 0.45, 1.0)
+
+
+func _update_dead(delta: float) -> void:
+	_death_respawn_timer = maxf(_death_respawn_timer - delta, 0.0)
+	if _death_respawn_timer == 0.0:
+		respawn(RespawnReason.DEATH)
+
+
+func _update_invulnerability(delta: float) -> void:
+	if _invulnerability_timer <= 0.0:
+		_visual.modulate.a = 1.0
+		return
+	_invulnerability_timer = maxf(_invulnerability_timer - delta, 0.0)
+	_visual.modulate.a = 0.45 if int(_invulnerability_timer * 20.0) % 2 == 0 else 1.0
+	if _invulnerability_timer == 0.0:
+		_visual.modulate.a = 1.0
+
+
+func get_navigation_feet_position() -> Vector2:
+	var collision := _active_navigation_collision()
+	if collision == null or collision.shape == null:
+		return global_position
+	var bottom := collision.position.y
+	var shape := collision.shape
+	if shape is CapsuleShape2D:
+		bottom += (shape as CapsuleShape2D).height * 0.5
+	elif shape is RectangleShape2D:
+		bottom += (shape as RectangleShape2D).size.y * 0.5
+	elif shape is CircleShape2D:
+		bottom += (shape as CircleShape2D).radius
+	else:
+		var bounds := shape.get_rect()
+		bottom += bounds.position.y + bounds.size.y
+	return global_position + Vector2(collision.position.x, bottom)
+
+
+func _active_navigation_collision() -> CollisionShape2D:
+	if _crouching_collision != null and not _crouching_collision.disabled:
+		return _crouching_collision
+	if _standing_collision != null and not _standing_collision.disabled:
+		return _standing_collision
+	return _standing_collision
+
+
+func get_health() -> int:
+	return _health
+
+
+func get_max_health() -> int:
+	return maxi(floori(_stats.get_stat(PlayerStats.MAX_HEALTH) + 0.5), 1)
+
+
+func get_level() -> int:
+	return _stats.level
+
+
+func get_experience() -> int:
+	return _stats.experience
+
+
+func get_experience_requirement() -> int:
+	return _stats.get_experience_requirement()
+
+
+func is_max_level() -> bool:
+	return _stats.is_max_level()
+
+
+func get_stat(stat_key: StringName) -> float:
+	return _stats.get_stat(stat_key)
+
+
+func get_profession_name() -> String:
+	if profession_definition == null or profession_definition.display_name.is_empty():
+		return "未选择职业"
+	return profession_definition.display_name
+
+
+func can_equip(definition: EquipmentDefinition) -> bool:
+	return profession_definition != null and profession_definition.can_equip(definition)
+
+
+func equip_item(definition: EquipmentDefinition) -> bool:
+	if not can_equip(definition):
+		return false
+	_equipped_items[definition.slot] = definition
+	_refresh_equipment_modifiers()
+	equipment_changed.emit()
+	return true
+
+
+func unequip_slot(slot: StringName) -> EquipmentDefinition:
+	if not EquipmentSlot.is_valid(slot):
+		return null
+	var removed := _equipped_items.get(slot) as EquipmentDefinition
+	if removed == null:
+		return null
+	_equipped_items.erase(slot)
+	_refresh_equipment_modifiers()
+	equipment_changed.emit()
+	return removed
+
+
+func get_equipped_item(slot: StringName) -> EquipmentDefinition:
+	return _equipped_items.get(slot) as EquipmentDefinition
+
+
+func get_equipped_items() -> Dictionary:
+	return _equipped_items.duplicate()
+
+
+func collect_equipment(definition: EquipmentDefinition, amount := 1) -> void:
+	if definition == null or not definition.is_valid() or amount <= 0:
+		return
+	_equipment_inventory[definition] = get_equipment_count(definition) + amount
+	equipment_inventory_changed.emit()
+
+
+func get_equipment_inventory() -> Dictionary:
+	return _equipment_inventory.duplicate()
+
+
+func get_equipment_count(definition: EquipmentDefinition) -> int:
+	return int(_equipment_inventory.get(definition, 0))
+
+
+func equip_inventory_item(definition: EquipmentDefinition) -> bool:
+	if definition == null or get_equipment_count(definition) <= 0:
+		equipment_equip_failed.emit("背包中没有该装备")
+		return false
+	if not can_equip(definition):
+		equipment_equip_failed.emit("当前职业无法装备该武器" if definition.is_weapon() else "当前职业无法装备该物品")
+		return false
+	var replaced := get_equipped_item(definition.slot)
+	_remove_equipment_from_inventory(definition, 1)
+	_equipped_items[definition.slot] = definition
+	if replaced != null:
+		_equipment_inventory[replaced] = get_equipment_count(replaced) + 1
+	_refresh_equipment_modifiers()
+	equipment_changed.emit()
+	equipment_inventory_changed.emit()
+	return true
+
+
+func preview_equipment_stats(definition: EquipmentDefinition) -> Dictionary:
+	var before: Dictionary = {}
+	var after: Dictionary = {}
+	var delta: Dictionary = {}
+	if definition == null or not definition.is_valid():
+		return {"valid": false, "before": before, "after": after, "delta": delta, "current": null}
+	var preview_stats := PlayerStats.new()
+	preview_stats.initialize(progression_definition)
+	preview_stats.level = _stats.level
+	preview_stats.experience = _stats.experience
+	var sources := _stats.get_modifier_sources_copy()
+	sources[EQUIPMENT_MODIFIER_SOURCE] = _equipment_modifiers_with_replacement(definition)
+	preview_stats.set_modifier_sources(sources)
+	for stat_key in _preview_stat_order():
+		var current_value := get_stat(stat_key)
+		var preview_value := preview_stats.get_stat(stat_key)
+		before[stat_key] = current_value
+		after[stat_key] = preview_value
+		delta[stat_key] = preview_value - current_value
+	return {
+		"valid": can_equip(definition),
+		"before": before,
+		"after": after,
+		"delta": delta,
+		"current": get_equipped_item(definition.slot),
+	}
+
+
+func _remove_equipment_from_inventory(definition: EquipmentDefinition, amount: int) -> void:
+	var remaining := get_equipment_count(definition) - amount
+	if remaining > 0:
+		_equipment_inventory[definition] = remaining
+	else:
+		_equipment_inventory.erase(definition)
+
+
+func _equipment_modifiers_with_replacement(candidate: EquipmentDefinition) -> Array[StatModifier]:
+	var combined: Array[StatModifier] = []
+	for slot in EquipmentSlot.ALL:
+		var definition := candidate if slot == candidate.slot else get_equipped_item(slot)
+		if definition != null:
+			combined.append_array(definition.get_modifiers())
+	return combined
+
+
+func _preview_stat_order() -> Array[StringName]:
+	return [
+		PlayerStats.STRENGTH,
+		PlayerStats.SPIRIT,
+		PlayerStats.VITALITY,
+		PlayerStats.TECHNIQUE,
+		PlayerStats.MAX_HEALTH,
+		PlayerStats.PHYSICAL_ATTACK,
+		PlayerStats.MAGIC_ATTACK,
+		PlayerStats.PHYSICAL_DEFENSE,
+		PlayerStats.CRITICAL_CHANCE,
+		PlayerStats.CRITICAL_DAMAGE,
+	]
+
+
+func _apply_starting_equipment() -> void:
+	_equipped_items.clear()
+	if profession_definition == null:
+		return
+	for definition in profession_definition.starting_equipment:
+		if profession_definition.can_equip(definition):
+			_equipped_items[definition.slot] = definition
+	_stats.set_modifier_source(EQUIPMENT_MODIFIER_SOURCE, _equipment_modifiers())
+
+
+func _refresh_equipment_modifiers() -> void:
+	var old_max := get_max_health()
+	_stats.set_modifier_source(EQUIPMENT_MODIFIER_SOURCE, _equipment_modifiers())
+	_apply_stats_change(old_max)
+
+
+func _equipment_modifiers() -> Array[StatModifier]:
+	var combined: Array[StatModifier] = []
+	for slot in EquipmentSlot.ALL:
+		var definition := get_equipped_item(slot)
+		if definition != null:
+			combined.append_array(definition.get_modifiers())
+	return combined
+
+
+func set_stat_modifier_source(source_id: StringName, modifiers: Array[StatModifier]) -> void:
+	var old_max := get_max_health()
+	_stats.set_modifier_source(source_id, modifiers)
+	_apply_stats_change(old_max)
+
+
+func remove_stat_modifier_source(source_id: StringName) -> void:
+	var old_max := get_max_health()
+	_stats.remove_modifier_source(source_id)
+	_apply_stats_change(old_max)
+
+
+func add_experience(amount: int) -> void:
+	if amount <= 0:
+		return
+	var old_max := get_max_health()
+	var result := _stats.add_experience(amount)
+	var levels_gained := int(result.levels_gained)
+	if levels_gained > 0:
+		_apply_stats_change(old_max)
+		level_up.emit(_stats.level, levels_gained)
+	_emit_progression_changed()
+
+
+func _apply_stats_change(old_max: int) -> void:
+	var new_max := get_max_health()
+	if current_state != State.DEAD and new_max > old_max:
+		_health = mini(_health + new_max - old_max, new_max)
+	else:
+		_health = mini(_health, new_max)
+	stats_changed.emit()
+	health_changed.emit(_health, new_max)
+
+
+func _emit_progression_changed() -> void:
+	progression_changed.emit(_stats.level, _stats.experience, _stats.get_experience_requirement(), _stats.is_max_level())
+
+
+func get_credit_owner() -> Node:
+	return self
+
+
+func collect_material(material_id: StringName, amount: int) -> void:
+	if material_id != STARDUST_FRAGMENT_ID or amount <= 0:
+		return
+	_stardust_fragments += amount
+	material_changed.emit(_stardust_fragments)
+
+
+func get_stardust_fragments() -> int:
+	return _stardust_fragments
+
+
+func can_collect_pickups() -> bool:
+	return current_state != State.DEAD and _health > 0
+
+
+func _update_sprint_input() -> void:
+	if current_state == State.CROUCH or current_state == State.ATTACK:
+		return
+
+	if Input.is_action_just_pressed("move_left"):
+		_sprint_direction = -1.0 if _elapsed_time - _last_left_press_time <= double_tap_window else 0.0
+		_last_left_press_time = _elapsed_time
+	if Input.is_action_just_pressed("move_right"):
+		_sprint_direction = 1.0 if _elapsed_time - _last_right_press_time <= double_tap_window else 0.0
+		_last_right_press_time = _elapsed_time
+
+	if _sprint_direction < 0.0 and not Input.is_action_pressed("move_left"):
+		_sprint_direction = 0.0
+	if _sprint_direction > 0.0 and not Input.is_action_pressed("move_right"):
+		_sprint_direction = 0.0
+
+
+func _handle_attack_input() -> void:
+	if not is_on_floor() or current_state == State.CROUCH or current_state == State.ATTACK:
+		return
+
+	var requested_type := -1
+	var light_just_pressed := Input.is_action_just_pressed("light_attack")
+	var heavy_just_pressed := Input.is_action_just_pressed("heavy_attack")
+	var light_held := Input.is_action_pressed("light_attack")
+	var heavy_held := Input.is_action_pressed("heavy_attack")
+
+	if light_just_pressed:
+		requested_type = AttackType.LIGHT
+	elif heavy_just_pressed:
+		requested_type = AttackType.HEAVY
+	elif light_held and heavy_held:
+		requested_type = AttackType.HEAVY if _last_auto_attack_type == AttackType.LIGHT else AttackType.LIGHT
+	elif light_held:
+		requested_type = AttackType.LIGHT
+	elif heavy_held:
+		requested_type = AttackType.HEAVY
+
+	if requested_type < 0 or not _can_start_attack(requested_type):
+		return
+	_start_attack(requested_type)
+
+
+func _can_start_attack(attack_type: AttackType) -> bool:
+	var profile := _profile_for_attack(attack_type)
+	if profile == null or not profile.is_valid():
+		return false
+	var next_attack_time := _next_light_attack_time if attack_type == AttackType.LIGHT else _next_heavy_attack_time
+	return _elapsed_time >= next_attack_time
+
+
+func _profile_for_attack(attack_type: AttackType) -> PlayerBasicAttackProfile:
+	var weapon := get_equipped_item(EquipmentSlot.WEAPON)
+	if weapon == null:
+		return null
+	return weapon.light_attack_profile if attack_type == AttackType.LIGHT else weapon.heavy_attack_profile
+
+
+func _start_attack(attack_type: AttackType) -> void:
+	if current_state == State.ATTACK:
+		return
+	var profile := _profile_for_attack(attack_type)
+	if profile == null or not profile.is_valid():
+		return
+	_current_attack_profile = profile
+	_current_attack_type = attack_type
+	_last_auto_attack_type = attack_type
+	_current_attack_critical = _stats.roll_critical()
+	_current_attack_damage = _calculate_attack_damage(profile, _current_attack_critical)
+	_current_attack_projectile_spawned = false
+	if attack_type == AttackType.LIGHT:
+		_next_light_attack_time = _elapsed_time + profile.repeat_interval
+	else:
+		_next_heavy_attack_time = _elapsed_time + profile.repeat_interval
+
+	var direction := Input.get_axis("move_left", "move_right")
+	_attack_direction = direction if direction != 0.0 else _facing_direction
+	_facing_direction = _attack_direction
+	_visual.set_facing_direction(_facing_direction)
+	_visual.set_attack(true, _current_attack_type, profile.weapon_type, profile.visual_key)
+	_configure_melee_hitbox(profile)
+	_attack_elapsed = 0.0
+	_attack_hitbox_active = false
+	_sprint_direction = 0.0
+	_set_state(State.ATTACK)
+
+
+func _configure_melee_hitbox(profile: PlayerBasicAttackProfile) -> void:
+	_attack_hitbox.deactivate()
+	if profile.delivery != PlayerBasicAttackProfile.Delivery.MELEE:
+		return
+	if _attack_collision.shape is RectangleShape2D:
+		(_attack_collision.shape as RectangleShape2D).size = Vector2(maxf(profile.melee_hitbox_size.x, 1.0), maxf(profile.melee_hitbox_size.y, 1.0))
+	_attack_hitbox.position = Vector2(absf(profile.melee_hitbox_offset.x) * _attack_direction, profile.melee_hitbox_offset.y)
+
+
+func _update_attack(delta: float) -> void:
+	if current_state != State.ATTACK:
+		return
+	if _current_attack_profile == null:
+		_finish_attack()
+		return
+
+	_attack_elapsed += delta
+	if _current_attack_profile.delivery == PlayerBasicAttackProfile.Delivery.MELEE:
+		var should_be_active := _attack_elapsed >= _current_attack_profile.hit_start and _attack_elapsed < _current_attack_profile.hit_end
+		if should_be_active and not _attack_hitbox_active:
+			_attack_hitbox.activate(_current_attack_damage, self, _attack_direction)
+			_attack_hitbox_active = true
+		elif not should_be_active and _attack_hitbox_active:
+			_attack_hitbox.deactivate()
+			_attack_hitbox_active = false
+	elif not _current_attack_projectile_spawned and _attack_elapsed >= _current_attack_profile.hit_start:
+		_spawn_attack_projectile(_current_attack_profile)
+		_current_attack_projectile_spawned = true
+
+	if _attack_elapsed >= _current_attack_profile.duration:
+		_finish_attack()
+
+
+func _spawn_attack_projectile(profile: PlayerBasicAttackProfile) -> void:
+	if get_parent() == null:
+		return
+	var projectile := PLAYER_ATTACK_PROJECTILE_SCENE.instantiate() as PlayerAttackProjectile
+	get_parent().add_child(projectile)
+	projectile.global_position = global_position + Vector2(profile.projectile_spawn_offset.x * _attack_direction, profile.projectile_spawn_offset.y)
+	projectile.initialize(profile, _current_attack_damage, self, _attack_direction)
+
+
+func _finish_attack() -> void:
+	_attack_hitbox.deactivate()
+	_attack_hitbox_active = false
+	_attack_elapsed = 0.0
+	_visual.set_attack(false, _current_attack_type)
+	_clear_attack_snapshot()
+	_set_state(State.IDLE)
+
+
+func _cancel_attack() -> void:
+	if current_state != State.ATTACK and not _attack_hitbox_active and _current_attack_profile == null:
+		return
+	_attack_hitbox.deactivate()
+	_attack_hitbox_active = false
+	_attack_elapsed = 0.0
+	_visual.set_attack(false, _current_attack_type)
+	_clear_attack_snapshot()
+
+
+func _clear_attack_snapshot() -> void:
+	_current_attack_profile = null
+	_current_attack_damage = 1
+	_current_attack_projectile_spawned = false
+
+
+func _calculate_attack_damage(profile: PlayerBasicAttackProfile, critical: bool) -> int:
+	var stat_key := PlayerStats.MAGIC_ATTACK if profile.damage_stat == PlayerBasicAttackProfile.DamageStat.MAGIC_ATTACK else PlayerStats.PHYSICAL_ATTACK
+	return _stats.calculate_attack_damage(stat_key, profile.damage_multiplier, critical)
+
+
+func _attack_duration() -> float:
+	return _current_attack_profile.duration if _current_attack_profile != null else 0.0
+
+
+func _attack_hit_start() -> float:
+	return _current_attack_profile.hit_start if _current_attack_profile != null else 0.0
+
+
+func _attack_hit_end() -> float:
+	return _current_attack_profile.hit_end if _current_attack_profile != null else 0.0
+
+
+func _attack_damage() -> int:
+	return _current_attack_damage
+
+
+func _attack_walk_speed_multiplier() -> float:
+	return _current_attack_profile.walk_speed_multiplier if _current_attack_profile != null else 0.0
+
+
+func _handle_ground_actions() -> void:
+	if not is_on_floor():
+		return
+
+	var crouch_pressed := Input.is_action_pressed("interact_down")
+	if crouch_pressed and Input.is_action_just_pressed("jump"):
+		if _is_on_one_way_platform():
+			_start_drop_through()
+		else:
+			_set_state(State.CROUCH)
+		return
+
+	if crouch_pressed:
+		_set_state(State.CROUCH)
+		return
+
+	if current_state == State.CROUCH:
+		if _can_stand():
+			_set_state(State.IDLE)
+		else:
+			return
+
+	if Input.is_action_just_pressed("jump"):
+		velocity.y = jump_velocity
+		_set_state(State.JUMP)
+
+
+func _apply_horizontal_movement(delta: float) -> void:
+	if current_state == State.CROUCH:
+		velocity.x = 0.0
+		return
+
+	var direction := Input.get_axis("move_left", "move_right")
+	if current_state == State.ATTACK:
+		velocity.x = direction * move_speed * _attack_walk_speed_multiplier()
+		return
+
+	if direction != 0.0:
+		_facing_direction = direction
+		_visual.set_facing_direction(_facing_direction)
+	var speed := sprint_speed if direction != 0.0 and direction == _sprint_direction else move_speed
+
+	if direction == 0.0 or is_on_floor():
+		velocity.x = direction * speed
+	else:
+		velocity.x = move_toward(velocity.x, direction * speed, air_acceleration * delta)
+
+
+func _apply_vertical_movement(delta: float) -> void:
+	if not is_on_floor():
+		var gravity_scale := fall_gravity_multiplier if velocity.y > 0.0 else 1.0
+		velocity.y += gravity * gravity_scale * delta
+
+	if current_state != State.ATTACK and Input.is_action_just_released("jump") and velocity.y < jump_velocity * 0.45:
+		velocity.y = jump_velocity * 0.45
+
+
+func _resolve_state() -> void:
+	if current_state == State.ATTACK:
+		if not is_on_floor():
+			_cancel_attack()
+			_set_state(State.FALL)
+		return
+
+	if not is_on_floor():
+		_set_state(State.JUMP if velocity.y < 0.0 else State.FALL)
+		return
+
+	if Input.is_action_pressed("interact_down") or current_state == State.CROUCH and not _can_stand():
+		_set_state(State.CROUCH)
+		return
+
+	if current_state == State.CROUCH:
+		_set_state(State.IDLE)
+
+	var direction := Input.get_axis("move_left", "move_right")
+	if direction == 0.0:
+		_set_state(State.IDLE)
+	elif direction == _sprint_direction:
+		_set_state(State.SPRINT)
+	else:
+		_set_state(State.WALK)
+
+
+func _set_state(next_state: State) -> void:
+	if current_state == next_state:
+		return
+
+	var was_crouched := current_state == State.CROUCH
+	current_state = next_state
+	var is_crouched := current_state == State.CROUCH
+
+	if is_crouched:
+		_sprint_direction = 0.0
+		_last_left_press_time = -double_tap_window
+		_last_right_press_time = -double_tap_window
+		velocity.x = 0.0
+
+	if was_crouched != is_crouched:
+		_set_crouched(is_crouched)
+
+
+func _set_crouched(crouched: bool) -> void:
+	_standing_collision.set_deferred("disabled", crouched)
+	_crouching_collision.set_deferred("disabled", not crouched)
+	_visual.set_crouched(crouched)
+
+
+func _can_stand() -> bool:
+	# Check only the extra headroom needed by the standing capsule. Querying the
+	# whole standing shape also touches the floor and can trap the player crouched.
+	var clearance_shape := RectangleShape2D.new()
+	clearance_shape.size = Vector2(34.0, 28.0)
+	var query := PhysicsShapeQueryParameters2D.new()
+	query.shape = clearance_shape
+	query.transform = Transform2D(0.0, global_position + Vector2(0.0, -24.0))
+	query.collision_mask = collision_mask
+	query.exclude = [get_rid()]
+	return get_world_2d().direct_space_state.intersect_shape(query, 1).is_empty()
+
+
+func _is_on_one_way_platform() -> bool:
+	for index in get_slide_collision_count():
+		var collision := get_slide_collision(index)
+		if collision.get_normal().y < -0.7:
+			var collider := collision.get_collider() as CollisionObject2D
+			if collider != null and collider.get_collision_layer_value(ONE_WAY_LAYER):
+				return true
+	return false
+
+
+func _start_drop_through() -> void:
+	_drop_through_timer = DROP_THROUGH_TIME
+	set_collision_mask_value(ONE_WAY_LAYER, false)
+	velocity.y = DROP_THROUGH_SPEED
+	_set_state(State.FALL)
+
+
+func _update_drop_through(delta: float) -> void:
+	if _drop_through_timer <= 0.0:
+		return
+
+	_drop_through_timer = maxf(_drop_through_timer - delta, 0.0)
+	if _drop_through_timer == 0.0:
+		set_collision_mask_value(ONE_WAY_LAYER, true)
+
+
+func _clear_owned_projectiles() -> void:
+	for projectile in get_tree().get_nodes_in_group("player_attack_projectile"):
+		if projectile.has_method("get_source") and projectile.get_source() == self:
+			projectile.queue_free()
+
+
+func respawn(reason: RespawnReason = RespawnReason.DEATH) -> void:
+	_cancel_attack()
+	_clear_owned_projectiles()
+	global_position = _spawn_position
+	velocity = Vector2.ZERO
+	_sprint_direction = 0.0
+	_last_left_press_time = -double_tap_window
+	_last_right_press_time = -double_tap_window
+	_drop_through_timer = 0.0
+	_next_light_attack_time = 0.0
+	_next_heavy_attack_time = 0.0
+	_last_auto_attack_type = AttackType.HEAVY
+	_current_attack_critical = false
+	_health = get_max_health()
+	_hit_stun_timer = 0.0
+	_invulnerability_timer = 0.0
+	_death_respawn_timer = 0.0
+	_hurtbox.enabled = true
+	_hurtbox_collision.set_deferred("disabled", false)
+	_visual.modulate = Color.WHITE
+	set_collision_mask_value(ONE_WAY_LAYER, true)
+	_set_state(State.IDLE)
+	_set_crouched(false)
+	health_changed.emit(_health, get_max_health())
+	respawned.emit(reason)

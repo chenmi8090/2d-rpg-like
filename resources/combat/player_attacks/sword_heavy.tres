@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="PlayerBasicAttackProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/player_basic_attack_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+id = &"sword_heavy"
+display_name = "重剑斩"
+weapon_type = &"sword"
+attack_type = 1
+delivery = 0
+damage_stat = 0
+damage_multiplier = 1.2
+duration = 0.78
+hit_start = 0.28
+hit_end = 0.43
+repeat_interval = 1.2
+walk_speed_multiplier = 0.18
+melee_hitbox_offset = Vector2(62, -18)
+melee_hitbox_size = Vector2(76, 36)
+visual_key = &"sword"
+color = Color(0.95, 0.72, 0.35, 1)

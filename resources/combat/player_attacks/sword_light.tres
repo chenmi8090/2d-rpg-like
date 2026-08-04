@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="PlayerBasicAttackProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/player_basic_attack_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+id = &"sword_light"
+display_name = "轻剑击"
+weapon_type = &"sword"
+attack_type = 0
+delivery = 0
+damage_stat = 0
+damage_multiplier = 0.65
+duration = 0.36
+hit_start = 0.09
+hit_end = 0.17
+repeat_interval = 0.55
+walk_speed_multiplier = 0.45
+melee_hitbox_offset = Vector2(50, -20)
+melee_hitbox_size = Vector2(60, 28)
+visual_key = &"sword"
+color = Color(0.78, 0.9, 1, 1)

@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="PlayerBasicAttackProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/player_basic_attack_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+id = &"staff_light"
+display_name = "星辉弹"
+weapon_type = &"staff"
+attack_type = 0
+delivery = 1
+damage_stat = 1
+damage_multiplier = 0.55
+duration = 0.42
+hit_start = 0.14
+hit_end = 0.16
+repeat_interval = 0.6
+walk_speed_multiplier = 0.4
+projectile_spawn_offset = Vector2(34, -30)
+projectile_size = Vector2(26, 14)
+projectile_speed = 560.0
+projectile_lifetime = 0.85
+projectile_max_distance = 480.0
+visual_key = &"staff"
+color = Color(0.38, 0.82, 1, 1)

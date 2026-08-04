@@ -1,0 +1,8 @@
+# Godot generated files
+.godot/
+
+# Local Claude configuration
+.claude/
+
+# macOS
+.DS_Store

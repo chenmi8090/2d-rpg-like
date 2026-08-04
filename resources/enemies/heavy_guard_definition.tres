@@ -1,0 +1,77 @@
+[gd_resource type="Resource" script_class="EnemyDefinition" load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/enemy_definition.gd" id="1_definition"]
+[ext_resource type="Resource" path="res://resources/enemies/heavy_guard_attack.tres" id="2_attack"]
+[ext_resource type="Script" path="res://scripts/items/enemy_drop_rule.gd" id="3_drop_rule"]
+[ext_resource type="Resource" path="res://resources/items/stardust_fragment.tres" id="4_stardust"]
+[ext_resource type="Script" path="res://scripts/items/equipment_drop_rule.gd" id="5_equipment_rule"]
+[ext_resource type="Resource" path="res://resources/equipment/star_staff.tres" id="6_staff"]
+[ext_resource type="Resource" path="res://resources/equipment/iron_guard_coat.tres" id="7_coat"]
+
+[sub_resource type="Resource" id="Resource_staff_drop"]
+script = ExtResource("5_equipment_rule")
+equipment = ExtResource("6_staff")
+chance = 0.10
+min_amount = 1
+max_amount = 1
+
+[sub_resource type="Resource" id="Resource_coat_drop"]
+script = ExtResource("5_equipment_rule")
+equipment = ExtResource("7_coat")
+chance = 0.16
+min_amount = 1
+max_amount = 1
+
+[sub_resource type="Resource" id="Resource_stardust_drop"]
+script = ExtResource("3_drop_rule")
+collectible = ExtResource("4_stardust")
+chance = 1.0
+min_amount = 2
+max_amount = 4
+
+[resource]
+script = ExtResource("1_definition")
+max_health = 24
+experience_reward = 18
+gravity = 1650.0
+patrol_speed = 42.0
+chase_speed = 76.0
+return_speed = 62.0
+patrol_range = 150.0
+idle_time = 0.65
+detection_size = Vector2(340, 125)
+detection_offset = Vector2(0, -44)
+lose_target_margin = 120.0
+leash_range = 520.0
+can_chase_jump = true
+jump_takeoff_speed = 640.0
+jump_air_speed = 235.0
+jump_air_acceleration = 900.0
+jump_max_rise = 118.0
+jump_launch_tolerance = 10.0
+jump_landing_margin = 28.0
+jump_retry_delay = 0.75
+jump_timeout = 1.6
+hit_stun_time = 0.14
+hit_flash_time = 0.14
+knockback_speed = 70.0
+body_radius = 24.0
+body_height = 76.0
+body_collision_offset = Vector2(0, -38)
+hurtbox_size = Vector2(58, 82)
+hurtbox_offset = Vector2(0, -41)
+floor_probe_x = 28.0
+wall_probe_x = 25.0
+wall_probe_y = -38.0
+visual_scale = 1.18
+body_color = Color(0.435294, 0.4, 0.45098, 1)
+flash_color = Color(1, 0.901961, 0.631373, 1)
+trim_color = Color(0.184314, 0.160784, 0.2, 1)
+eye_color = Color(0.956863, 0.905882, 0.827451, 1)
+pupil_color = Color(0.0901961, 0.0745098, 0.101961, 1)
+attack_tell_color = Color(0.780392, 0.356863, 0.270588, 1)
+armor_color = Color(0.239216, 0.27451, 0.321569, 1)
+dead_color = Color(0.235294, 0.219608, 0.254902, 1)
+melee_attack = ExtResource("2_attack")
+drop_rules = Array[ExtResource("3_drop_rule")]([SubResource("Resource_stardust_drop")])
+equipment_drop_rules = Array[ExtResource("5_equipment_rule")]([SubResource("Resource_staff_drop"), SubResource("Resource_coat_drop")])

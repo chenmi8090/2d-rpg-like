@@ -1,0 +1,72 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/player_visual.gd" id="2_visual"]
+[ext_resource type="Script" path="res://scripts/combat/attack_hitbox.gd" id="3_attack"]
+[ext_resource type="Script" path="res://scripts/combat/hurtbox.gd" id="4_hurtbox"]
+[ext_resource type="Resource" path="res://resources/progression/default_player_progression.tres" id="5_progression"]
+[ext_resource type="Resource" path="res://resources/professions/traveler.tres" id="6_profession"]
+
+[sub_resource type="CapsuleShape2D" id="Capsule_standing"]
+radius = 18.0
+height = 72.0
+
+[sub_resource type="CapsuleShape2D" id="Capsule_crouching"]
+radius = 18.0
+height = 44.0
+
+[sub_resource type="RectangleShape2D" id="Rectangle_attack"]
+size = Vector2(46, 34)
+
+[sub_resource type="CapsuleShape2D" id="Capsule_hurtbox"]
+radius = 17.0
+height = 68.0
+
+[node name="Player" type="CharacterBody2D" groups=["player"]]
+collision_layer = 2
+collision_mask = 5
+script = ExtResource("1_player")
+progression_definition = ExtResource("5_progression")
+profession_definition = ExtResource("6_profession")
+
+[node name="StandingCollision" type="CollisionShape2D" parent="."]
+position = Vector2(0, -2)
+shape = SubResource("Capsule_standing")
+
+[node name="CrouchingCollision" type="CollisionShape2D" parent="."]
+position = Vector2(0, 12)
+shape = SubResource("Capsule_crouching")
+disabled = true
+
+[node name="Visual" type="Node2D" parent="."]
+z_index = 1
+script = ExtResource("2_visual")
+
+[node name="PlayerHurtbox" type="Area2D" parent="."]
+position = Vector2(0, -2)
+collision_layer = 64
+collision_mask = 0
+script = ExtResource("4_hurtbox")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="PlayerHurtbox"]
+shape = SubResource("Capsule_hurtbox")
+
+[node name="AttackHitbox" type="Area2D" parent="."]
+position = Vector2(40, -18)
+collision_layer = 8
+collision_mask = 16
+monitorable = false
+script = ExtResource("3_attack")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="AttackHitbox"]
+shape = SubResource("Rectangle_attack")
+disabled = true
+
+[node name="Camera2D" type="Camera2D" parent="."]
+position = Vector2(220, -80)
+position_smoothing_enabled = true
+position_smoothing_speed = 7.0
+limit_left = -360
+limit_top = -360
+limit_right = 3300
+limit_bottom = 800

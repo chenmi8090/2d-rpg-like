@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="ProfessionDefinition" load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/profession_definition.gd" id="1_profession"]
+[ext_resource type="Script" path="res://scripts/equipment/equipment_definition.gd" id="9_equipment"]
+[ext_resource type="Resource" path="res://resources/equipment/traveler_sword.tres" id="2_sword"]
+[ext_resource type="Resource" path="res://resources/equipment/traveler_cap.tres" id="3_cap"]
+[ext_resource type="Resource" path="res://resources/equipment/traveler_coat.tres" id="4_coat"]
+[ext_resource type="Resource" path="res://resources/equipment/traveler_trousers.tres" id="5_trousers"]
+[ext_resource type="Resource" path="res://resources/equipment/traveler_gloves.tres" id="6_gloves"]
+[ext_resource type="Resource" path="res://resources/equipment/traveler_boots.tres" id="7_boots"]
+[ext_resource type="Resource" path="res://resources/equipment/traveler_ring.tres" id="8_ring"]
+
+[resource]
+script = ExtResource("1_profession")
+id = &"traveler"
+display_name = "旅人"
+allowed_weapon_types = Array[StringName]([&"sword", &"staff"])
+starting_equipment = Array[ExtResource("9_equipment")]([ExtResource("2_sword"), ExtResource("3_cap"), ExtResource("4_coat"), ExtResource("5_trousers"), ExtResource("6_gloves"), ExtResource("7_boots"), ExtResource("8_ring")])

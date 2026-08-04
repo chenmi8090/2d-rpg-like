@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="EquipmentDefinition" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/equipment_definition.gd" id="1_equipment"]
+[ext_resource type="Script" path="res://scripts/progression/stat_modifier.gd" id="2_modifier"]
+
+[sub_resource type="Resource" id="Vitality"]
+script = ExtResource("2_modifier")
+stat_key = &"vitality"
+flat_bonus = 2.0
+
+[sub_resource type="Resource" id="Defense"]
+script = ExtResource("2_modifier")
+stat_key = &"physical_defense"
+flat_bonus = 4.0
+
+[resource]
+script = ExtResource("1_equipment")
+id = &"iron_guard_coat"
+display_name = "铁卫上衣"
+slot = &"body"
+modifiers = Array[ExtResource("2_modifier")]([SubResource("Vitality"), SubResource("Defense")])

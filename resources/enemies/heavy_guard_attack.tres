@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="EnemyMeleeAttackDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/enemy_melee_attack_definition.gd" id="1_attack"]
+
+[resource]
+script = ExtResource("1_attack")
+damage = 5
+hitbox_size = Vector2(90, 54)
+hitbox_offset = Vector2(21, -34)
+windup_time = 0.65
+active_time = 0.18
+recovery_time = 0.55
+cooldown_time = 1.8
+engage_range = 68.0

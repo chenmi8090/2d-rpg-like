@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="EquipmentDefinition" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/equipment_definition.gd" id="1_equipment"]
+[ext_resource type="Script" path="res://scripts/progression/stat_modifier.gd" id="2_modifier"]
+[ext_resource type="Resource" path="res://resources/combat/player_attacks/staff_light.tres" id="3_light"]
+[ext_resource type="Resource" path="res://resources/combat/player_attacks/staff_heavy.tres" id="4_heavy"]
+
+[sub_resource type="Resource" id="Spirit"]
+script = ExtResource("2_modifier")
+stat_key = &"spirit"
+flat_bonus = 2.0
+
+[sub_resource type="Resource" id="Magic"]
+script = ExtResource("2_modifier")
+stat_key = &"magic_attack"
+flat_bonus = 3.0
+
+[resource]
+script = ExtResource("1_equipment")
+id = &"star_staff"
+display_name = "星纹法杖"
+slot = &"weapon"
+weapon_type = &"staff"
+light_attack_profile = ExtResource("3_light")
+heavy_attack_profile = ExtResource("4_heavy")
+modifiers = Array[ExtResource("2_modifier")]([SubResource("Spirit"), SubResource("Magic")])

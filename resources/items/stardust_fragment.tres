@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="CollectibleDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/collectible_definition.gd" id="1_collectible"]
+
+[resource]
+script = ExtResource("1_collectible")
+id = &"stardust_fragment"
+display_name = "星尘碎片"
+color = Color(0.952941, 0.839216, 0.419608, 1)

@@ -1,0 +1,60 @@
+[gd_resource type="Resource" script_class="EnemyDefinition" load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/enemy_definition.gd" id="1_definition"]
+[ext_resource type="Resource" path="res://resources/enemies/patrol_grunt_attack.tres" id="2_attack"]
+[ext_resource type="Script" path="res://scripts/items/enemy_drop_rule.gd" id="3_drop_rule"]
+[ext_resource type="Resource" path="res://resources/items/stardust_fragment.tres" id="4_stardust"]
+[ext_resource type="Script" path="res://scripts/items/equipment_drop_rule.gd" id="5_equipment_rule"]
+[ext_resource type="Resource" path="res://resources/equipment/tempered_sword.tres" id="6_sword"]
+[ext_resource type="Resource" path="res://resources/equipment/hunter_bow.tres" id="7_bow"]
+
+[sub_resource type="Resource" id="Resource_sword_drop"]
+script = ExtResource("5_equipment_rule")
+equipment = ExtResource("6_sword")
+chance = 0.12
+min_amount = 1
+max_amount = 1
+
+[sub_resource type="Resource" id="Resource_bow_drop"]
+script = ExtResource("5_equipment_rule")
+equipment = ExtResource("7_bow")
+chance = 0.04
+min_amount = 1
+max_amount = 1
+
+[sub_resource type="Resource" id="Resource_stardust_drop"]
+script = ExtResource("3_drop_rule")
+collectible = ExtResource("4_stardust")
+chance = 1.0
+min_amount = 1
+max_amount = 2
+
+[resource]
+script = ExtResource("1_definition")
+max_health = 10
+experience_reward = 8
+gravity = 1650.0
+patrol_speed = 70.0
+chase_speed = 115.0
+return_speed = 90.0
+patrol_range = 180.0
+idle_time = 0.4
+detection_size = Vector2(300, 110)
+detection_offset = Vector2(0, -38)
+lose_target_margin = 100.0
+leash_range = 500.0
+can_chase_jump = true
+jump_takeoff_speed = 620.0
+jump_air_speed = 250.0
+jump_air_acceleration = 1500.0
+jump_max_rise = 112.0
+jump_launch_tolerance = 8.0
+jump_landing_margin = 22.0
+jump_retry_delay = 0.45
+jump_timeout = 1.4
+hit_stun_time = 0.18
+hit_flash_time = 0.12
+knockback_speed = 120.0
+melee_attack = ExtResource("2_attack")
+drop_rules = Array[ExtResource("3_drop_rule")]([SubResource("Resource_stardust_drop")])
+equipment_drop_rules = Array[ExtResource("5_equipment_rule")]([SubResource("Resource_sword_drop"), SubResource("Resource_bow_drop")])

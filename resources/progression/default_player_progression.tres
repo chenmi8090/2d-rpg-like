@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="PlayerProgressionDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/progression/player_progression_definition.gd" id="1_progression"]
+
+[resource]
+script = ExtResource("1_progression")
+maximum_level = 100
+starting_level = 1
+starting_experience = 0
+starting_strength = 3
+starting_spirit = 3
+starting_vitality = 3
+starting_technique = 3
+strength_per_level = 1
+spirit_per_level = 1
+vitality_per_level = 1
+technique_per_level = 1
+light_attack_multiplier = 0.5
+heavy_attack_multiplier = 1.0

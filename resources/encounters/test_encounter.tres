@@ -1,0 +1,89 @@
+[gd_resource type="Resource" script_class="EncounterDefinition" load_steps=16 format=3]
+
+[ext_resource type="Script" path="res://scripts/encounters/encounter_definition.gd" id="1_encounter"]
+[ext_resource type="Script" path="res://scripts/encounters/enemy_group_definition.gd" id="2_group"]
+[ext_resource type="Script" path="res://scripts/encounters/enemy_spawn_definition.gd" id="3_spawn"]
+[ext_resource type="Resource" path="res://resources/enemies/patrol_grunt_definition.tres" id="4_grunt"]
+[ext_resource type="Resource" path="res://resources/enemies/heavy_guard_definition.tres" id="5_heavy"]
+
+[sub_resource type="Resource" id="Spawn_ground_grunt_1"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("4_grunt")
+local_position = Vector2(430, 640)
+facing_direction = -1.0
+respawn_delay = 8.0
+
+[sub_resource type="Resource" id="Spawn_ground_heavy_1"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("5_heavy")
+local_position = Vector2(900, 640)
+facing_direction = -1.0
+respawn_delay = 13.0
+
+[sub_resource type="Resource" id="Spawn_ground_grunt_2"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("4_grunt")
+local_position = Vector2(1400, 640)
+facing_direction = -1.0
+respawn_delay = 9.0
+
+[sub_resource type="Resource" id="Spawn_ground_grunt_3"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("4_grunt")
+local_position = Vector2(1880, 640)
+facing_direction = -1.0
+respawn_delay = 8.0
+
+[sub_resource type="Resource" id="Spawn_ground_heavy_2"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("5_heavy")
+local_position = Vector2(2360, 640)
+facing_direction = -1.0
+respawn_delay = 14.0
+
+[sub_resource type="Resource" id="Spawn_ground_grunt_4"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("4_grunt")
+local_position = Vector2(2920, 640)
+facing_direction = -1.0
+respawn_delay = 9.0
+
+[sub_resource type="Resource" id="Group_ground"]
+script = ExtResource("2_group")
+spawns = Array[ExtResource("3_spawn")]([SubResource("Spawn_ground_grunt_1"), SubResource("Spawn_ground_heavy_1"), SubResource("Spawn_ground_grunt_2"), SubResource("Spawn_ground_grunt_3"), SubResource("Spawn_ground_heavy_2"), SubResource("Spawn_ground_grunt_4")])
+
+[sub_resource type="Resource" id="Spawn_upper_grunt_1"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("4_grunt")
+local_position = Vector2(520, 554)
+facing_direction = -1.0
+respawn_delay = 11.0
+
+[sub_resource type="Resource" id="Spawn_upper_grunt_2"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("4_grunt")
+local_position = Vector2(1270, 539)
+facing_direction = -1.0
+respawn_delay = 10.0
+
+[sub_resource type="Resource" id="Spawn_upper_heavy_1"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("5_heavy")
+local_position = Vector2(2090, 529)
+facing_direction = -1.0
+respawn_delay = 16.0
+
+[sub_resource type="Resource" id="Spawn_upper_grunt_3"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("4_grunt")
+local_position = Vector2(2510, 439)
+facing_direction = -1.0
+respawn_delay = 12.0
+
+[sub_resource type="Resource" id="Group_upper"]
+script = ExtResource("2_group")
+spawns = Array[ExtResource("3_spawn")]([SubResource("Spawn_upper_grunt_1"), SubResource("Spawn_upper_grunt_2"), SubResource("Spawn_upper_heavy_1"), SubResource("Spawn_upper_grunt_3")])
+
+[resource]
+script = ExtResource("1_encounter")
+groups = Array[ExtResource("2_group")]([SubResource("Group_ground"), SubResource("Group_upper")])
