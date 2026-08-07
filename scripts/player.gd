@@ -43,10 +43,20 @@ const PLAYER_ATTACK_PROJECTILE_SCENE := preload("res://scenes/combat/player_atta
 @export var move_speed := 280.0
 @export var sprint_speed := 430.0
 @export var double_tap_window := 0.24
+@export var ground_acceleration := 2600.0
+@export var ground_deceleration := 3200.0
+@export var ground_reversal_acceleration := 4200.0
 @export var air_acceleration := 1100.0
+@export var air_deceleration := 550.0
 @export var gravity := 1650.0
 @export var jump_velocity := -590.0
+@export var jump_cutoff_multiplier := 0.45
+@export var coyote_time := 0.10
+@export var jump_buffer_time := 0.12
+@export var apex_velocity_threshold := 75.0
+@export var apex_gravity_multiplier := 0.72
 @export var fall_gravity_multiplier := 1.35
+@export var maximum_fall_speed := 1250.0
 @export_category("Progression")
 @export var progression_definition: PlayerProgressionDefinition
 @export var profession_definition: ProfessionDefinition
@@ -97,6 +107,9 @@ var _stats := PlayerStats.new()
 var _equipped_items: Dictionary = {}
 var _equipment_inventory: Dictionary = {}
 var _input_suppression_timer := 0.0
+var _coyote_timer := 0.0
+var _jump_buffer_timer := 0.0
+var _jump_consumed := false
 
 @onready var _standing_collision: CollisionShape2D = $StandingCollision
 @onready var _crouching_collision: CollisionShape2D = $CrouchingCollision
@@ -126,6 +139,15 @@ func player_ready() -> void:
 	_emit_progression_changed()
 
 
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_APPLICATION_FOCUS_OUT:
+		return
+	for action in GameSession.GAMEPLAY_INPUT_ACTIONS:
+		Input.action_release(action)
+	Input.flush_buffered_events()
+	suppress_gameplay_input()
+
+
 func _physics_process(delta: float) -> void:
 	_elapsed_time += delta
 	_input_suppression_timer = maxf(_input_suppression_timer - delta, 0.0)
@@ -140,15 +162,19 @@ func _physics_process(delta: float) -> void:
 		_update_hit(delta)
 		return
 
+	var was_on_floor := is_on_floor()
 	_update_drop_through(delta)
+	_update_jump_timers(delta, was_on_floor)
 	_update_sprint_input()
 	_handle_attack_input()
 	_update_attack(delta)
 	if current_state != State.ATTACK:
-		_handle_ground_actions()
-	_apply_horizontal_movement(delta)
-	_apply_vertical_movement(delta)
+		_handle_ground_actions(was_on_floor)
+	_apply_horizontal_movement(delta, was_on_floor)
+	_apply_vertical_movement(delta, was_on_floor)
 	move_and_slide()
+	if not was_on_floor and is_on_floor():
+		_handle_landing()
 	_resolve_state()
 
 
@@ -156,6 +182,7 @@ func receive_hit(amount: int, _source: Node, hit_direction: float) -> void:
 	if current_state == State.DEAD or _invulnerability_timer > 0.0:
 		return
 	_cancel_attack()
+	_clear_transient_movement_state(false, true)
 	var final_amount := _stats.mitigate_physical_damage(amount)
 	_health = maxi(_health - final_amount, 0)
 	health_changed.emit(_health, get_max_health())
@@ -181,6 +208,7 @@ func _update_hit(delta: float) -> void:
 func _enter_dead() -> void:
 	_cancel_attack()
 	_clear_owned_projectiles()
+	_clear_transient_movement_state(true, true)
 	current_state = State.DEAD
 	velocity = Vector2.ZERO
 	_death_respawn_timer = death_respawn_delay
@@ -354,10 +382,21 @@ func suppress_gameplay_input(duration := -1.0) -> void:
 
 
 func _reset_movement_input_state() -> void:
-	velocity.x = 0.0
+	_clear_transient_movement_state(true, true)
+
+
+func _clear_transient_movement_state(clear_horizontal_velocity: bool, restore_one_way_collision: bool) -> void:
+	if clear_horizontal_velocity:
+		velocity.x = 0.0
 	_sprint_direction = 0.0
-	_last_left_press_time = -double_tap_window
-	_last_right_press_time = -double_tap_window
+	_last_left_press_time = _elapsed_time - double_tap_window - 1.0
+	_last_right_press_time = _elapsed_time - double_tap_window - 1.0
+	_jump_buffer_timer = 0.0
+	_coyote_timer = 0.0
+	_jump_consumed = false
+	if restore_one_way_collision:
+		_drop_through_timer = 0.0
+		set_collision_mask_value(ONE_WAY_LAYER, true)
 
 
 func _input_suppressed() -> bool:
@@ -590,18 +629,20 @@ func can_collect_pickups() -> bool:
 
 func _update_sprint_input() -> void:
 	if current_state == State.CROUCH or current_state == State.ATTACK:
+		_sprint_direction = 0.0
 		return
 
 	if _action_just_pressed(&"move_left"):
 		_sprint_direction = -1.0 if _elapsed_time - _last_left_press_time <= double_tap_window else 0.0
 		_last_left_press_time = _elapsed_time
+		_last_right_press_time = _elapsed_time - double_tap_window - 1.0
 	if _action_just_pressed(&"move_right"):
 		_sprint_direction = 1.0 if _elapsed_time - _last_right_press_time <= double_tap_window else 0.0
 		_last_right_press_time = _elapsed_time
+		_last_left_press_time = _elapsed_time - double_tap_window - 1.0
 
-	if _sprint_direction < 0.0 and not _action_pressed(&"move_left"):
-		_sprint_direction = 0.0
-	if _sprint_direction > 0.0 and not _action_pressed(&"move_right"):
+	var direction := _movement_axis()
+	if _sprint_direction != 0.0 and direction != _sprint_direction:
 		_sprint_direction = 0.0
 
 
@@ -767,19 +808,34 @@ func _attack_walk_speed_multiplier() -> float:
 	return _current_attack_profile.walk_speed_multiplier if _current_attack_profile != null else 0.0
 
 
-func _handle_ground_actions() -> void:
-	if not is_on_floor():
-		return
+func _update_jump_timers(delta: float, was_on_floor: bool) -> void:
+	_jump_buffer_timer = maxf(_jump_buffer_timer - delta, 0.0)
+	if was_on_floor:
+		_coyote_timer = coyote_time
+		_jump_consumed = false
+	else:
+		_coyote_timer = maxf(_coyote_timer - delta, 0.0)
 
+	if _input_suppressed():
+		_jump_buffer_timer = 0.0
+		return
+	if _action_just_pressed(&"jump"):
+		_jump_buffer_timer = jump_buffer_time
+
+
+func _handle_ground_actions(was_on_floor: bool) -> void:
 	var crouch_pressed := _action_pressed(&"interact_down")
-	if crouch_pressed and _action_just_pressed(&"jump"):
+	if was_on_floor and crouch_pressed and _jump_buffer_timer > 0.0:
+		_jump_buffer_timer = 0.0
+		_coyote_timer = 0.0
+		_jump_consumed = true
 		if _is_on_one_way_platform():
 			_start_drop_through()
 		else:
 			_set_state(State.CROUCH)
 		return
 
-	if crouch_pressed:
+	if was_on_floor and crouch_pressed:
 		_set_state(State.CROUCH)
 		return
 
@@ -789,14 +845,29 @@ func _handle_ground_actions() -> void:
 		else:
 			return
 
-	if _action_just_pressed(&"jump"):
-		velocity.y = jump_velocity
-		_set_state(State.JUMP)
+	if _can_consume_jump(was_on_floor):
+		_consume_jump()
 
 
-func _apply_horizontal_movement(delta: float) -> void:
+func _can_consume_jump(was_on_floor: bool) -> bool:
+	if _jump_buffer_timer <= 0.0 or _jump_consumed:
+		return false
+	if current_state == State.CROUCH or current_state == State.ATTACK or current_state == State.HIT or current_state == State.DEAD:
+		return false
+	return was_on_floor or _coyote_timer > 0.0
+
+
+func _consume_jump() -> void:
+	velocity.y = jump_velocity
+	_jump_buffer_timer = 0.0
+	_coyote_timer = 0.0
+	_jump_consumed = true
+	_set_state(State.JUMP)
+
+
+func _apply_horizontal_movement(delta: float, was_on_floor: bool) -> void:
 	if current_state == State.CROUCH:
-		velocity.x = 0.0
+		velocity.x = move_toward(velocity.x, 0.0, ground_deceleration * delta)
 		return
 
 	var direction := _movement_axis()
@@ -808,20 +879,37 @@ func _apply_horizontal_movement(delta: float) -> void:
 		_facing_direction = direction
 		_visual.set_facing_direction(_facing_direction)
 	var speed := sprint_speed if direction != 0.0 and direction == _sprint_direction else move_speed
+	var target_velocity := direction * speed
 
-	if direction == 0.0 or is_on_floor():
-		velocity.x = direction * speed
+	if was_on_floor:
+		var acceleration := ground_acceleration
+		if direction == 0.0:
+			acceleration = ground_deceleration
+		elif velocity.x != 0.0 and signf(velocity.x) != direction:
+			acceleration = ground_reversal_acceleration
+		velocity.x = move_toward(velocity.x, target_velocity, acceleration * delta)
+	elif direction == 0.0:
+		velocity.x = move_toward(velocity.x, 0.0, air_deceleration * delta)
 	else:
-		velocity.x = move_toward(velocity.x, direction * speed, air_acceleration * delta)
+		velocity.x = move_toward(velocity.x, target_velocity, air_acceleration * delta)
 
 
-func _apply_vertical_movement(delta: float) -> void:
-	if not is_on_floor():
-		var gravity_scale := fall_gravity_multiplier if velocity.y > 0.0 else 1.0
-		velocity.y += gravity * gravity_scale * delta
+func _apply_vertical_movement(delta: float, was_on_floor: bool) -> void:
+	if not was_on_floor:
+		var gravity_scale := 1.0
+		if velocity.y > 0.0:
+			gravity_scale = fall_gravity_multiplier
+		elif absf(velocity.y) <= apex_velocity_threshold:
+			gravity_scale = apex_gravity_multiplier
+		velocity.y = minf(velocity.y + gravity * gravity_scale * delta, maximum_fall_speed)
 
-	if current_state != State.ATTACK and _action_just_released(&"jump") and velocity.y < jump_velocity * 0.45:
-		velocity.y = jump_velocity * 0.45
+	if current_state != State.ATTACK and _action_just_released(&"jump") and velocity.y < jump_velocity * jump_cutoff_multiplier:
+		velocity.y = jump_velocity * jump_cutoff_multiplier
+
+
+func _handle_landing() -> void:
+	_jump_consumed = false
+	_coyote_timer = coyote_time
 
 
 func _resolve_state() -> void:
@@ -861,8 +949,9 @@ func _set_state(next_state: State) -> void:
 
 	if is_crouched:
 		_sprint_direction = 0.0
-		_last_left_press_time = -double_tap_window
-		_last_right_press_time = -double_tap_window
+		_last_left_press_time = _elapsed_time - double_tap_window - 1.0
+		_last_right_press_time = _elapsed_time - double_tap_window - 1.0
+		_jump_buffer_timer = 0.0
 		velocity.x = 0.0
 
 	if was_crouched != is_crouched:
@@ -901,7 +990,11 @@ func _is_on_one_way_platform() -> bool:
 func _start_drop_through() -> void:
 	_drop_through_timer = DROP_THROUGH_TIME
 	set_collision_mask_value(ONE_WAY_LAYER, false)
-	velocity.y = DROP_THROUGH_SPEED
+	velocity.y = maxf(velocity.y, DROP_THROUGH_SPEED)
+	_jump_buffer_timer = 0.0
+	_coyote_timer = 0.0
+	_jump_consumed = true
+	_sprint_direction = 0.0
 	_set_state(State.FALL)
 
 
@@ -924,6 +1017,7 @@ func respawn(reason: RespawnReason = RespawnReason.DEATH) -> void:
 	_cancel_attack()
 	_clear_owned_projectiles()
 	global_position = _spawn_position
+	velocity = Vector2.ZERO
 	suppress_gameplay_input()
 	_drop_through_timer = 0.0
 	_next_light_attack_time = 0.0
