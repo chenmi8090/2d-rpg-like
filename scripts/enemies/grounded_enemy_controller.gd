@@ -111,6 +111,12 @@ func set_target(target: Node2D) -> void:
 	_target = target
 
 
+func is_engaged_with_target() -> bool:
+	if not visible or _target == null or not is_instance_valid(_target):
+		return false
+	return current_state in [State.CHASE, State.ATTACK, State.HIT, State.JUMP_CHASE]
+
+
 func _resolve_target() -> void:
 	if _target != null and is_instance_valid(_target):
 		return

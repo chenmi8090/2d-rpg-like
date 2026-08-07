@@ -158,6 +158,36 @@ theme_override_colors/font_color = Color(0.94, 0.97, 0.93, 1)
 theme_override_font_sizes/font_size = 17
 text = "生命 14 / 14"
 
+[node name="SessionPanel" type="Control" parent="Interface"]
+offset_left = 990.0
+offset_top = 22.0
+offset_right = 1254.0
+offset_bottom = 158.0
+
+[node name="ReturnButton" type="Button" parent="Interface/SessionPanel"]
+offset_left = 12.0
+offset_top = 10.0
+offset_right = 252.0
+offset_bottom = 46.0
+text = "返回角色列表"
+
+[node name="SaveStatusText" type="Label" parent="Interface/SessionPanel"]
+offset_left = 12.0
+offset_top = 53.0
+offset_right = 252.0
+offset_bottom = 79.0
+theme_override_colors/font_color = Color(0.91, 0.84, 0.48, 1)
+horizontal_alignment = 1
+
+[node name="ReturnStatusText" type="Label" parent="Interface/SessionPanel"]
+offset_left = 12.0
+offset_top = 82.0
+offset_right = 252.0
+offset_bottom = 126.0
+theme_override_colors/font_color = Color(1, 0.62, 0.4, 1)
+autowrap_mode = 2
+horizontal_alignment = 1
+
 [node name="BackpackPanel" type="Control" parent="Interface"]
 visible = false
 layout_mode = 3
@@ -310,11 +340,21 @@ theme_override_font_sizes/font_size = 16
 text = "力量：5\n精神：4\n体魄：4\n技巧：4\n\n最大生命：14\n物理攻击：5\n魔法攻击：3.5\n物理防御：16\n暴击率：9%\n暴击伤害：159%"
 mouse_filter = 2
 
+[node name="CharacterNameText" type="Label" parent="Interface/AttributesPanel"]
+offset_left = 236.0
+offset_top = 68.0
+offset_right = 430.0
+offset_bottom = 96.0
+theme_override_colors/font_color = Color(0.86, 0.91, 0.88, 1)
+theme_override_font_sizes/font_size = 16
+text = "角色：测试角色"
+mouse_filter = 2
+
 [node name="ProfessionText" type="Label" parent="Interface/AttributesPanel"]
 offset_left = 236.0
-offset_top = 72.0
+offset_top = 98.0
 offset_right = 430.0
-offset_bottom = 102.0
+offset_bottom = 128.0
 theme_override_colors/font_color = Color(0.95, 0.84, 0.42, 1)
 theme_override_font_sizes/font_size = 17
 text = "职业：旅人"
@@ -322,9 +362,9 @@ mouse_filter = 2
 
 [node name="EquipmentTitle" type="Label" parent="Interface/AttributesPanel"]
 offset_left = 236.0
-offset_top = 112.0
+offset_top = 138.0
 offset_right = 430.0
-offset_bottom = 140.0
+offset_bottom = 166.0
 theme_override_colors/font_color = Color(0.86, 0.91, 0.88, 1)
 theme_override_font_sizes/font_size = 16
 text = "装备（鼠标悬停查看属性）"
@@ -332,9 +372,9 @@ mouse_filter = 2
 
 [node name="EquipmentList" type="VBoxContainer" parent="Interface/AttributesPanel"]
 offset_left = 232.0
-offset_top = 148.0
+offset_top = 174.0
 offset_right = 432.0
-offset_bottom = 428.0
+offset_bottom = 454.0
 theme_override_constants/separation = 5
 mouse_filter = 2
 

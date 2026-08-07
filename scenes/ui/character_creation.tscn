@@ -1,0 +1,202 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/character_creation.gd" id="1_script"]
+
+[node name="CharacterCreation" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.055, 0.105, 0.135, 1)
+mouse_filter = 2
+
+[node name="Accent" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 8.0
+grow_horizontal = 2
+color = Color(0.83, 0.65, 0.25, 1)
+mouse_filter = 2
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 110.0
+offset_top = 34.0
+offset_right = -110.0
+offset_bottom = -28.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Layout" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Margin/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.84, 0.42, 1)
+theme_override_font_sizes/font_size = 32
+text = "创建角色"
+horizontal_alignment = 1
+
+[node name="SlotLabel" type="Label" parent="Margin/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.82, 0.8, 1)
+theme_override_font_sizes/font_size = 18
+text = "角色栏位 1"
+horizontal_alignment = 1
+
+[node name="MainColumns" type="HBoxContainer" parent="Margin/Layout"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 18
+
+[node name="Form" type="PanelContainer" parent="Margin/Layout/MainColumns"]
+custom_minimum_size = Vector2(470, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Margin" type="MarginContainer" parent="Margin/Layout/MainColumns/Form"]
+layout_mode = 2
+theme_override_constants/margin_left = 22
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 22
+theme_override_constants/margin_bottom = 20
+
+[node name="Layout" type="VBoxContainer" parent="Margin/Layout/MainColumns/Form/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="NameLabel" type="Label" parent="Margin/Layout/MainColumns/Form/Margin/Layout"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "角色名"
+
+[node name="NameHint" type="Label" parent="Margin/Layout/MainColumns/Form/Margin/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.78, 0.76, 1)
+text = "2–12 个中文、英文字母或数字"
+
+[node name="NameInput" type="LineEdit" parent="Margin/Layout/MainColumns/Form/Margin/Layout"]
+layout_mode = 2
+placeholder_text = "输入角色名"
+max_length = 12
+
+[node name="ProfessionLabel" type="Label" parent="Margin/Layout/MainColumns/Form/Margin/Layout"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "职业（创建后不可更换）"
+
+[node name="ProfessionOptions" type="OptionButton" parent="Margin/Layout/MainColumns/Form/Margin/Layout"]
+layout_mode = 2
+
+[node name="ProfessionDetail" type="Label" parent="Margin/Layout/MainColumns/Form/Margin/Layout"]
+custom_minimum_size = Vector2(0, 180)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.76, 0.86, 0.83, 1)
+theme_override_constants/line_spacing = 6
+theme_override_font_sizes/font_size = 17
+autowrap_mode = 2
+
+[node name="FutureOptions" type="VBoxContainer" parent="Margin/Layout/MainColumns"]
+custom_minimum_size = Vector2(470, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 14
+
+[node name="AppearancePanel" type="PanelContainer" parent="Margin/Layout/MainColumns/FutureOptions"]
+custom_minimum_size = Vector2(0, 235)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Margin" type="MarginContainer" parent="Margin/Layout/MainColumns/FutureOptions/AppearancePanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 18
+
+[node name="Layout" type="VBoxContainer" parent="Margin/Layout/MainColumns/FutureOptions/AppearancePanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Margin/Layout/MainColumns/FutureOptions/AppearancePanel/Margin/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.84, 0.42, 1)
+theme_override_font_sizes/font_size = 20
+text = "外观定制（预留）"
+
+[node name="Preview" type="ColorRect" parent="Margin/Layout/MainColumns/FutureOptions/AppearancePanel/Margin/Layout"]
+custom_minimum_size = Vector2(0, 75)
+layout_mode = 2
+color = Color(0.2, 0.31, 0.34, 1)
+mouse_filter = 2
+
+[node name="Placeholder" type="Label" parent="Margin/Layout/MainColumns/FutureOptions/AppearancePanel/Margin/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.72, 0.81, 0.79, 1)
+autowrap_mode = 2
+
+[node name="LoadoutPanel" type="PanelContainer" parent="Margin/Layout/MainColumns/FutureOptions"]
+custom_minimum_size = Vector2(0, 235)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Margin" type="MarginContainer" parent="Margin/Layout/MainColumns/FutureOptions/LoadoutPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 18
+
+[node name="Layout" type="VBoxContainer" parent="Margin/Layout/MainColumns/FutureOptions/LoadoutPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Margin/Layout/MainColumns/FutureOptions/LoadoutPanel/Margin/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.84, 0.42, 1)
+theme_override_font_sizes/font_size = 20
+text = "初始装备（预留）"
+
+[node name="Placeholder" type="Label" parent="Margin/Layout/MainColumns/FutureOptions/LoadoutPanel/Margin/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.72, 0.81, 0.79, 1)
+autowrap_mode = 2
+
+[node name="Feedback" type="Label" parent="Margin/Layout"]
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.55, 0.4, 1)
+theme_override_font_sizes/font_size = 17
+horizontal_alignment = 1
+
+[node name="Buttons" type="HBoxContainer" parent="Margin/Layout"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 16
+
+[node name="Confirm" type="Button" parent="Margin/Layout/Buttons"]
+custom_minimum_size = Vector2(180, 44)
+layout_mode = 2
+disabled = true
+text = "创建角色"
+
+[node name="Cancel" type="Button" parent="Margin/Layout/Buttons"]
+custom_minimum_size = Vector2(180, 44)
+layout_mode = 2
+text = "返回角色列表"
