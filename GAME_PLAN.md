@@ -27,6 +27,12 @@ An original single-player 2D action RPG prototype inspired by classic side-scrol
 - The `E` character panel shows final attributes and seven equipment slots; hovering a slot reveals that item’s exact bonuses
 - Fixed equipment drops auto-attract into a counted `I` backpack with hover comparison, click-to-equip, replacement return, and profession restriction feedback
 - Sword J/K attacks use profile-driven physical melee strikes; staff J/K attacks use profile-driven magical projectiles
+- Three fixed local character slots with create, continue, and typed-name deletion flows
+- Permanent profession binding with Traveler and staff-focused Star Seeker starting options
+- Versioned per-character JSON saves for level, EXP, materials, equipment, backpack, safe location, and play time
+- Atomic-style temporary writes, last-known-good backups, corrupt-save recovery, and future-version rejection
+- Character-isolated progression and inventory with a shared startup character list
+- Safe return-to-character-list flow with autosave, combat countdown interruption, and challenge-lock support
 
 ## Controls
 
@@ -46,4 +52,4 @@ An original single-player 2D action RPG prototype inspired by classic side-scrol
 
 ## Next milestone
 
-Add interactive equipment acquisition and inventory around the fixed seven-slot loadout. Weapon-dependent basic attacks/skills, equipment instances and drops, random affixes, reinforcement, durability, save data, combat feedback, map transitions, moving-platform/ladders/ropes navigation, de-aggro/home recovery, and final artwork remain later milestones.
+Begin the movement and combat-feel phase. Random equipment affixes, reinforcement, durability, broader map transitions, moving-platform/ladders/ropes navigation, de-aggro/home recovery, skill trees, and final artwork remain later milestones.

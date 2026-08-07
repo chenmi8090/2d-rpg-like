@@ -8,6 +8,9 @@ const MAP_LEFT := -370.0
 const MAP_RIGHT := 3300.0
 const HEALTH_BAR_WIDTH := 180.0
 const EXPERIENCE_BAR_WIDTH := 180.0
+const AREA_ID := &"test_level"
+const SAFE_SPAWN_ID := &"start"
+const SAFE_SPAWN_POSITION := Vector2(80.0, 550.0)
 
 @onready var _player: Player = $Player
 @onready var _drops: Node2D = $Drops
@@ -32,6 +35,10 @@ const EXPERIENCE_BAR_WIDTH := 180.0
 @onready var _equipment_list: VBoxContainer = $Interface/AttributesPanel/EquipmentList
 @onready var _equipment_detail_panel: Control = $Interface/AttributesPanel/EquipmentDetailPanel
 @onready var _equipment_detail_text: Label = $Interface/AttributesPanel/EquipmentDetailPanel/DetailText
+@onready var _character_name_text: Label = $Interface/AttributesPanel/CharacterNameText
+@onready var _return_button: Button = $Interface/SessionPanel/ReturnButton
+@onready var _save_status_text: Label = $Interface/SessionPanel/SaveStatusText
+@onready var _return_status_text: Label = $Interface/SessionPanel/ReturnStatusText
 
 var _rng := RandomNumberGenerator.new()
 var _connected_enemies: Dictionary = {}
@@ -56,6 +63,12 @@ func _ready() -> void:
 	_player.equipment_inventory_changed.connect(_update_backpack_panel)
 	_player.equipment_equip_failed.connect(_on_equipment_equip_failed)
 	_encounter_manager.experience_reward_accepted.connect(_on_experience_reward_accepted)
+	_return_button.pressed.connect(_on_return_button_pressed)
+	GameSession.save_status_changed.connect(_on_save_status_changed)
+	GameSession.return_countdown_changed.connect(_on_return_countdown_changed)
+	var bind_result := GameSession.bind_level(self, _player)
+	if not bind_result.ok:
+		_on_save_status_changed(String(bind_result.message), true)
 	_update_player_health(_player.get_health(), _player.get_max_health())
 	_update_material_count(_player.get_stardust_fragments())
 	_update_player_progression(_player.get_level(), _player.get_experience(), _player.get_experience_requirement(), _player.is_max_level())
@@ -64,6 +77,45 @@ func _ready() -> void:
 	_update_backpack_panel()
 	_connect_enemy_drop_sources()
 	get_tree().node_added.connect(_on_node_added)
+
+
+func _exit_tree() -> void:
+	if GameSession.save_status_changed.is_connected(_on_save_status_changed):
+		GameSession.save_status_changed.disconnect(_on_save_status_changed)
+	if GameSession.return_countdown_changed.is_connected(_on_return_countdown_changed):
+		GameSession.return_countdown_changed.disconnect(_on_return_countdown_changed)
+	GameSession.unbind_level(self)
+
+
+func get_area_id() -> StringName:
+	return AREA_ID
+
+
+func get_safe_spawn_position(spawn_id: StringName) -> Vector2:
+	return SAFE_SPAWN_POSITION if spawn_id == SAFE_SPAWN_ID else Vector2.INF
+
+
+func is_combat_active() -> bool:
+	for enemy in _encounter_manager.get_owned_enemies():
+		if enemy != null and is_instance_valid(enemy) and enemy.is_engaged_with_target():
+			return true
+	return false
+
+
+func _on_return_button_pressed() -> void:
+	var result := GameSession.request_return_to_list()
+	if not result.ok:
+		_return_status_text.text = String(result.message)
+
+
+func _on_save_status_changed(message: String, failed: bool) -> void:
+	_save_status_text.text = message
+	_save_status_text.modulate = Color("ff916f") if failed else Color("e8d579")
+
+
+func _on_return_countdown_changed(message: String, active: bool) -> void:
+	_return_status_text.text = message
+	_return_button.disabled = active
 
 
 func _on_player_respawned(reason: Player.RespawnReason) -> void:
@@ -263,6 +315,7 @@ func _setup_equipment_rows() -> void:
 
 
 func _update_attributes_panel() -> void:
+	_character_name_text.text = "角色：%s" % (GameSession.get_active_character_name() if GameSession.has_active_profile() else "测试角色")
 	_attributes_text.text = "\n".join([
 		"力量：%s" % _format_stat(_player.get_stat(PlayerStats.STRENGTH)),
 		"精神：%s" % _format_stat(_player.get_stat(PlayerStats.SPIRIT)),

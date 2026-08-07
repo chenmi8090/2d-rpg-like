@@ -11,8 +11,12 @@ config_version=5
 [application]
 
 config/name="天穹之旅原型"
-run/main_scene="res://scenes/levels/test_level.tscn"
+run/main_scene="res://scenes/ui/character_select.tscn"
 config/features=PackedStringArray("4.7")
+
+[autoload]
+
+GameSession="*res://scripts/services/game_session.gd"
 
 [display]
 

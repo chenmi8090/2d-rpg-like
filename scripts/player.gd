@@ -67,6 +67,7 @@ const PLAYER_ATTACK_PROJECTILE_SCENE := preload("res://scenes/combat/player_atta
 @export var invulnerability_time := 0.8
 @export var damage_knockback_speed := 240.0
 @export var death_respawn_delay := 0.8
+@export var spawn_input_suppression_time := 0.12
 
 var current_state := State.IDLE
 var _facing_direction := 1.0
@@ -95,6 +96,7 @@ var _stardust_fragments := 0
 var _stats := PlayerStats.new()
 var _equipped_items: Dictionary = {}
 var _equipment_inventory: Dictionary = {}
+var _input_suppression_timer := 0.0
 
 @onready var _standing_collision: CollisionShape2D = $StandingCollision
 @onready var _crouching_collision: CollisionShape2D = $CrouchingCollision
@@ -126,8 +128,9 @@ func player_ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_elapsed_time += delta
+	_input_suppression_timer = maxf(_input_suppression_timer - delta, 0.0)
 	_update_invulnerability(delta)
-	if Input.is_action_just_pressed("reset"):
+	if _action_just_pressed(&"reset"):
 		respawn(RespawnReason.MANUAL_RESET)
 		return
 	if current_state == State.DEAD:
@@ -260,6 +263,121 @@ func get_profession_name() -> String:
 	if profession_definition == null or profession_definition.display_name.is_empty():
 		return "未选择职业"
 	return profession_definition.display_name
+
+
+func get_profession_id() -> StringName:
+	return profession_definition.id if profession_definition != null else &""
+
+
+func get_save_snapshot() -> Dictionary:
+	var equipped: Dictionary = {}
+	for slot in EquipmentSlot.ALL:
+		var definition := get_equipped_item(slot)
+		if definition != null:
+			equipped[String(slot)] = String(definition.id)
+	var inventory: Array[Dictionary] = []
+	for definition in _equipment_inventory:
+		if definition is EquipmentDefinition:
+			var count := get_equipment_count(definition)
+			if count > 0:
+				inventory.append({"id": String(definition.id), "count": count})
+	return {
+		"progression": {"level": _stats.level, "experience": _stats.experience},
+		"materials": {"stardust_fragment": _stardust_fragments},
+		"equipment": {"equipped": equipped, "inventory": inventory},
+	}
+
+
+func apply_save_snapshot(profile: Dictionary) -> Dictionary:
+	var profession_id := StringName(String(profile.get("profession_id", "")))
+	var profession := DefinitionRegistry.get_profession(profession_id)
+	if profession == null:
+		return {"ok": false, "message": "角色职业定义不存在"}
+	profession_definition = profession
+	_stats.initialize(progression_definition)
+	var progression := profile.get("progression", {}) as Dictionary
+	_stats.level = clampi(int(progression.get("level", 1)), 1, progression_definition.maximum_level)
+	_stats.experience = maxi(int(progression.get("experience", 0)), 0)
+	if _stats.is_max_level():
+		_stats.experience = 0
+	_equipped_items.clear()
+	_equipment_inventory.clear()
+	var equipment := profile.get("equipment", {}) as Dictionary
+	var equipped := equipment.get("equipped", {}) as Dictionary
+	for slot in EquipmentSlot.ALL:
+		var definition := DefinitionRegistry.get_equipment(StringName(String(equipped.get(String(slot), ""))))
+		if definition != null and definition.slot == slot and profession_definition.can_equip(definition):
+			_equipped_items[slot] = definition
+	var inventory := equipment.get("inventory", []) as Array
+	for entry in inventory:
+		if not entry is Dictionary:
+			continue
+		var definition := DefinitionRegistry.get_equipment(StringName(String(entry.get("id", ""))))
+		var count := maxi(int(entry.get("count", 0)), 0)
+		if definition != null and count > 0:
+			_equipment_inventory[definition] = count
+	var materials := profile.get("materials", {}) as Dictionary
+	_stardust_fragments = maxi(int(materials.get("stardust_fragment", 0)), 0)
+	_stats.set_modifier_source(EQUIPMENT_MODIFIER_SOURCE, _equipment_modifiers())
+	_cancel_attack()
+	_clear_owned_projectiles()
+	velocity = Vector2.ZERO
+	_health = get_max_health()
+	_hit_stun_timer = 0.0
+	_invulnerability_timer = 0.0
+	_death_respawn_timer = 0.0
+	_hurtbox.enabled = true
+	_hurtbox_collision.set_deferred("disabled", false)
+	_visual.modulate = Color.WHITE
+	_set_state(State.IDLE)
+	_set_crouched(false)
+	suppress_gameplay_input()
+	health_changed.emit(_health, get_max_health())
+	material_changed.emit(_stardust_fragments)
+	_emit_progression_changed()
+	stats_changed.emit()
+	equipment_changed.emit()
+	equipment_inventory_changed.emit()
+	return {"ok": true, "message": ""}
+
+
+func apply_safe_spawn(spawn_position: Vector2) -> void:
+	_spawn_position = spawn_position
+	global_position = spawn_position
+	suppress_gameplay_input()
+
+
+func suppress_gameplay_input(duration := -1.0) -> void:
+	var suppression_duration := spawn_input_suppression_time if duration < 0.0 else duration
+	_input_suppression_timer = maxf(_input_suppression_timer, suppression_duration)
+	_reset_movement_input_state()
+
+
+func _reset_movement_input_state() -> void:
+	velocity.x = 0.0
+	_sprint_direction = 0.0
+	_last_left_press_time = -double_tap_window
+	_last_right_press_time = -double_tap_window
+
+
+func _input_suppressed() -> bool:
+	return _input_suppression_timer > 0.0
+
+
+func _movement_axis() -> float:
+	return 0.0 if _input_suppressed() else Input.get_axis("move_left", "move_right")
+
+
+func _action_pressed(action: StringName) -> bool:
+	return not _input_suppressed() and Input.is_action_pressed(action)
+
+
+func _action_just_pressed(action: StringName) -> bool:
+	return not _input_suppressed() and Input.is_action_just_pressed(action)
+
+
+func _action_just_released(action: StringName) -> bool:
+	return not _input_suppressed() and Input.is_action_just_released(action)
 
 
 func can_equip(definition: EquipmentDefinition) -> bool:
@@ -474,16 +592,16 @@ func _update_sprint_input() -> void:
 	if current_state == State.CROUCH or current_state == State.ATTACK:
 		return
 
-	if Input.is_action_just_pressed("move_left"):
+	if _action_just_pressed(&"move_left"):
 		_sprint_direction = -1.0 if _elapsed_time - _last_left_press_time <= double_tap_window else 0.0
 		_last_left_press_time = _elapsed_time
-	if Input.is_action_just_pressed("move_right"):
+	if _action_just_pressed(&"move_right"):
 		_sprint_direction = 1.0 if _elapsed_time - _last_right_press_time <= double_tap_window else 0.0
 		_last_right_press_time = _elapsed_time
 
-	if _sprint_direction < 0.0 and not Input.is_action_pressed("move_left"):
+	if _sprint_direction < 0.0 and not _action_pressed(&"move_left"):
 		_sprint_direction = 0.0
-	if _sprint_direction > 0.0 and not Input.is_action_pressed("move_right"):
+	if _sprint_direction > 0.0 and not _action_pressed(&"move_right"):
 		_sprint_direction = 0.0
 
 
@@ -492,10 +610,10 @@ func _handle_attack_input() -> void:
 		return
 
 	var requested_type := -1
-	var light_just_pressed := Input.is_action_just_pressed("light_attack")
-	var heavy_just_pressed := Input.is_action_just_pressed("heavy_attack")
-	var light_held := Input.is_action_pressed("light_attack")
-	var heavy_held := Input.is_action_pressed("heavy_attack")
+	var light_just_pressed := _action_just_pressed(&"light_attack")
+	var heavy_just_pressed := _action_just_pressed(&"heavy_attack")
+	var light_held := _action_pressed(&"light_attack")
+	var heavy_held := _action_pressed(&"heavy_attack")
 
 	if light_just_pressed:
 		requested_type = AttackType.LIGHT
@@ -545,7 +663,7 @@ func _start_attack(attack_type: AttackType) -> void:
 	else:
 		_next_heavy_attack_time = _elapsed_time + profile.repeat_interval
 
-	var direction := Input.get_axis("move_left", "move_right")
+	var direction := _movement_axis()
 	_attack_direction = direction if direction != 0.0 else _facing_direction
 	_facing_direction = _attack_direction
 	_visual.set_facing_direction(_facing_direction)
@@ -653,8 +771,8 @@ func _handle_ground_actions() -> void:
 	if not is_on_floor():
 		return
 
-	var crouch_pressed := Input.is_action_pressed("interact_down")
-	if crouch_pressed and Input.is_action_just_pressed("jump"):
+	var crouch_pressed := _action_pressed(&"interact_down")
+	if crouch_pressed and _action_just_pressed(&"jump"):
 		if _is_on_one_way_platform():
 			_start_drop_through()
 		else:
@@ -671,7 +789,7 @@ func _handle_ground_actions() -> void:
 		else:
 			return
 
-	if Input.is_action_just_pressed("jump"):
+	if _action_just_pressed(&"jump"):
 		velocity.y = jump_velocity
 		_set_state(State.JUMP)
 
@@ -681,7 +799,7 @@ func _apply_horizontal_movement(delta: float) -> void:
 		velocity.x = 0.0
 		return
 
-	var direction := Input.get_axis("move_left", "move_right")
+	var direction := _movement_axis()
 	if current_state == State.ATTACK:
 		velocity.x = direction * move_speed * _attack_walk_speed_multiplier()
 		return
@@ -702,7 +820,7 @@ func _apply_vertical_movement(delta: float) -> void:
 		var gravity_scale := fall_gravity_multiplier if velocity.y > 0.0 else 1.0
 		velocity.y += gravity * gravity_scale * delta
 
-	if current_state != State.ATTACK and Input.is_action_just_released("jump") and velocity.y < jump_velocity * 0.45:
+	if current_state != State.ATTACK and _action_just_released(&"jump") and velocity.y < jump_velocity * 0.45:
 		velocity.y = jump_velocity * 0.45
 
 
@@ -717,14 +835,14 @@ func _resolve_state() -> void:
 		_set_state(State.JUMP if velocity.y < 0.0 else State.FALL)
 		return
 
-	if Input.is_action_pressed("interact_down") or current_state == State.CROUCH and not _can_stand():
+	if _action_pressed(&"interact_down") or current_state == State.CROUCH and not _can_stand():
 		_set_state(State.CROUCH)
 		return
 
 	if current_state == State.CROUCH:
 		_set_state(State.IDLE)
 
-	var direction := Input.get_axis("move_left", "move_right")
+	var direction := _movement_axis()
 	if direction == 0.0:
 		_set_state(State.IDLE)
 	elif direction == _sprint_direction:
@@ -806,10 +924,7 @@ func respawn(reason: RespawnReason = RespawnReason.DEATH) -> void:
 	_cancel_attack()
 	_clear_owned_projectiles()
 	global_position = _spawn_position
-	velocity = Vector2.ZERO
-	_sprint_direction = 0.0
-	_last_left_press_time = -double_tap_window
-	_last_right_press_time = -double_tap_window
+	suppress_gameplay_input()
 	_drop_through_timer = 0.0
 	_next_light_attack_time = 0.0
 	_next_heavy_attack_time = 0.0
