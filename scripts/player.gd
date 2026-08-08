@@ -10,6 +10,10 @@ signal stats_changed
 signal equipment_changed
 signal equipment_inventory_changed
 signal equipment_equip_failed(message: String)
+signal attack_started(attack_type: int, profile_id: StringName)
+signal attack_phase_changed(attack_type: int, phase: int)
+signal attack_hit_confirmed(attack_type: int, profile_id: StringName)
+signal attack_ended(attack_type: int, profile_id: StringName, cancelled: bool)
 
 enum RespawnReason {
 	DEATH,
@@ -19,6 +23,13 @@ enum RespawnReason {
 enum AttackType {
 	LIGHT,
 	HEAVY,
+}
+
+enum AttackPhase {
+	NONE,
+	STARTUP,
+	ACTIVE,
+	RECOVERY,
 }
 
 enum State {
@@ -60,18 +71,6 @@ const PLAYER_ATTACK_PROJECTILE_SCENE := preload("res://scenes/combat/player_atta
 @export_category("Progression")
 @export var progression_definition: PlayerProgressionDefinition
 @export var profession_definition: ProfessionDefinition
-@export_category("Light Attack")
-@export var light_attack_duration := 0.38
-@export var light_attack_hit_start := 0.10
-@export var light_attack_hit_end := 0.19
-@export var light_attack_walk_speed_multiplier := 0.45
-@export var light_attack_repeat_interval := 0.55
-@export_category("Heavy Attack")
-@export var heavy_attack_duration := 0.85
-@export var heavy_attack_hit_start := 0.32
-@export var heavy_attack_hit_end := 0.48
-@export var heavy_attack_walk_speed_multiplier := 0.18
-@export var heavy_attack_repeat_interval := 1.20
 @export_category("Health")
 @export var hit_stun_time := 0.25
 @export var invulnerability_time := 0.8
@@ -90,11 +89,13 @@ var _attack_elapsed := 0.0
 var _attack_direction := 1.0
 var _attack_hitbox_active := false
 var _current_attack_type := AttackType.LIGHT
+var _current_attack_phase := AttackPhase.NONE
 var _last_auto_attack_type := AttackType.HEAVY
 var _current_attack_critical := false
 var _current_attack_profile: PlayerBasicAttackProfile
 var _current_attack_damage := 1
 var _current_attack_projectile_spawned := false
+var _current_attack_hit_confirmed := false
 var _next_light_attack_time := 0.0
 var _next_heavy_attack_time := 0.0
 var _health := 10
@@ -123,6 +124,7 @@ var _jump_consumed := false
 func _ready() -> void:
 	if _attack_collision.shape != null:
 		_attack_collision.shape = _attack_collision.shape.duplicate()
+	_attack_hitbox.hit_confirmed.connect(_on_attack_hit_confirmed)
 	_stats.initialize(progression_definition)
 	_apply_starting_equipment()
 	_stats.rng.randomize()
@@ -178,9 +180,9 @@ func _physics_process(delta: float) -> void:
 	_resolve_state()
 
 
-func receive_hit(amount: int, _source: Node, hit_direction: float) -> void:
+func receive_hit(amount: int, _source: Node, hit_direction: float) -> bool:
 	if current_state == State.DEAD or _invulnerability_timer > 0.0:
-		return
+		return false
 	_cancel_attack()
 	_clear_transient_movement_state(false, true)
 	var final_amount := _stats.mitigate_physical_damage(amount)
@@ -188,11 +190,12 @@ func receive_hit(amount: int, _source: Node, hit_direction: float) -> void:
 	health_changed.emit(_health, get_max_health())
 	if _health <= 0:
 		_enter_dead()
-		return
+		return true
 	_invulnerability_timer = invulnerability_time
 	_hit_stun_timer = hit_stun_time
 	velocity.x = signf(hit_direction) * damage_knockback_speed
 	_set_state(State.HIT)
+	return true
 
 
 func _update_hit(delta: float) -> void:
@@ -699,6 +702,7 @@ func _start_attack(attack_type: AttackType) -> void:
 	_current_attack_critical = _stats.roll_critical()
 	_current_attack_damage = _calculate_attack_damage(profile, _current_attack_critical)
 	_current_attack_projectile_spawned = false
+	_current_attack_hit_confirmed = false
 	if attack_type == AttackType.LIGHT:
 		_next_light_attack_time = _elapsed_time + profile.repeat_interval
 	else:
@@ -709,11 +713,13 @@ func _start_attack(attack_type: AttackType) -> void:
 	_facing_direction = _attack_direction
 	_visual.set_facing_direction(_facing_direction)
 	_visual.set_attack(true, _current_attack_type, profile.weapon_type, profile.visual_key)
+	_set_attack_phase(AttackPhase.STARTUP)
 	_configure_melee_hitbox(profile)
 	_attack_elapsed = 0.0
 	_attack_hitbox_active = false
 	_sprint_direction = 0.0
 	_set_state(State.ATTACK)
+	attack_started.emit(_current_attack_type, profile.id)
 
 
 func _configure_melee_hitbox(profile: PlayerBasicAttackProfile) -> void:
@@ -733,6 +739,7 @@ func _update_attack(delta: float) -> void:
 		return
 
 	_attack_elapsed += delta
+	_set_attack_phase(_phase_for_attack_elapsed(_attack_elapsed, _current_attack_profile))
 	if _current_attack_profile.delivery == PlayerBasicAttackProfile.Delivery.MELEE:
 		var should_be_active := _attack_elapsed >= _current_attack_profile.hit_start and _attack_elapsed < _current_attack_profile.hit_end
 		if should_be_active and not _attack_hitbox_active:
@@ -753,34 +760,85 @@ func _spawn_attack_projectile(profile: PlayerBasicAttackProfile) -> void:
 	if get_parent() == null:
 		return
 	var projectile := PLAYER_ATTACK_PROJECTILE_SCENE.instantiate() as PlayerAttackProjectile
+	projectile.hit_confirmed.connect(_on_projectile_hit_confirmed.bind(_current_attack_type, profile.id))
 	get_parent().add_child(projectile)
 	projectile.global_position = global_position + Vector2(profile.projectile_spawn_offset.x * _attack_direction, profile.projectile_spawn_offset.y)
 	projectile.initialize(profile, _current_attack_damage, self, _attack_direction)
 
 
 func _finish_attack() -> void:
-	_attack_hitbox.deactivate()
-	_attack_hitbox_active = false
-	_attack_elapsed = 0.0
-	_visual.set_attack(false, _current_attack_type)
-	_clear_attack_snapshot()
-	_set_state(State.IDLE)
+	_end_attack(false, true)
 
 
 func _cancel_attack() -> void:
 	if current_state != State.ATTACK and not _attack_hitbox_active and _current_attack_profile == null:
 		return
+	_end_attack(true, false)
+
+
+func _end_attack(cancelled: bool, restore_idle: bool) -> void:
+	var ended_type := _current_attack_type
+	var ended_profile_id := _current_attack_profile.id if _current_attack_profile != null else &""
 	_attack_hitbox.deactivate()
 	_attack_hitbox_active = false
 	_attack_elapsed = 0.0
-	_visual.set_attack(false, _current_attack_type)
+	_set_attack_phase(AttackPhase.NONE)
+	_visual.set_attack(false, ended_type)
 	_clear_attack_snapshot()
+	attack_ended.emit(ended_type, ended_profile_id, cancelled)
+	if restore_idle:
+		_set_state(State.IDLE)
 
 
 func _clear_attack_snapshot() -> void:
 	_current_attack_profile = null
 	_current_attack_damage = 1
 	_current_attack_projectile_spawned = false
+	_current_attack_hit_confirmed = false
+
+
+func _phase_for_attack_elapsed(elapsed: float, profile: PlayerBasicAttackProfile) -> AttackPhase:
+	if profile == null:
+		return AttackPhase.NONE
+	if elapsed < profile.hit_start:
+		return AttackPhase.STARTUP
+	if elapsed < profile.hit_end:
+		return AttackPhase.ACTIVE
+	if elapsed < profile.duration:
+		return AttackPhase.RECOVERY
+	return AttackPhase.NONE
+
+
+func _set_attack_phase(phase: AttackPhase) -> void:
+	if _current_attack_phase == phase:
+		return
+	_current_attack_phase = phase
+	_visual.set_attack_phase(phase)
+	attack_phase_changed.emit(_current_attack_type, phase)
+
+
+func _on_attack_hit_confirmed(_hurtbox: Hurtbox, _damage: int, source: Node, _hit_direction: float) -> void:
+	if source != self or current_state != State.ATTACK or _current_attack_profile == null:
+		return
+	_current_attack_hit_confirmed = true
+	_visual.show_attack_hit_feedback()
+	attack_hit_confirmed.emit(_current_attack_type, _current_attack_profile.id)
+
+
+func _on_projectile_hit_confirmed(
+	_hurtbox: Hurtbox,
+	_damage: int,
+	source: Node,
+	_hit_direction: float,
+	attack_type: int,
+	profile_id: StringName
+) -> void:
+	if source != self:
+		return
+	if current_state == State.ATTACK and _current_attack_profile != null and _current_attack_profile.id == profile_id:
+		_current_attack_hit_confirmed = true
+		_visual.show_attack_hit_feedback()
+	attack_hit_confirmed.emit(attack_type, profile_id)
 
 
 func _calculate_attack_damage(profile: PlayerBasicAttackProfile, critical: bool) -> int:

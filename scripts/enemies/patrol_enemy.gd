@@ -113,9 +113,9 @@ func _turn_around() -> void:
 	queue_redraw()
 
 
-func receive_hit(amount: int, _source: Node, hit_direction: float) -> void:
+func receive_hit(amount: int, _source: Node, hit_direction: float) -> bool:
 	if current_state == State.DEAD:
-		return
+		return false
 
 	_health = maxi(_health - amount, 0)
 	_hit_flash_timer = hit_flash_time
@@ -123,6 +123,7 @@ func receive_hit(amount: int, _source: Node, hit_direction: float) -> void:
 	velocity.x = signf(hit_direction) * knockback_speed
 	current_state = State.HIT
 	queue_redraw()
+	return true
 
 
 func _enter_dead() -> void:

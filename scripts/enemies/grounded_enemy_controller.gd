@@ -600,9 +600,9 @@ func _resolve_player_source(source: Node, visited: Dictionary = {}, depth := 0) 
 	return null
 
 
-func receive_hit(amount: int, source: Node, hit_direction: float) -> void:
+func receive_hit(amount: int, source: Node, hit_direction: float) -> bool:
 	if current_state == State.DEAD or _death_pending:
-		return
+		return false
 	var attacking_player := _resolve_player_source(source)
 	if attacking_player != null:
 		_target = attacking_player
@@ -620,6 +620,7 @@ func receive_hit(amount: int, source: Node, hit_direction: float) -> void:
 		_lethal_source = source
 	current_state = State.HIT
 	queue_redraw()
+	return true
 
 
 func _cancel_attack() -> void:

@@ -1,6 +1,8 @@
 class_name PlayerAttackProjectile
 extends Area2D
 
+signal hit_confirmed(hurtbox: Hurtbox, damage: int, source: Node, hit_direction: float)
+
 var _damage := 1
 var _source: Node
 var _direction := 1.0
@@ -61,8 +63,9 @@ func _try_hit(area: Area2D) -> void:
 	if hurtbox in _hit_hurtboxes:
 		return
 	_hit_hurtboxes.append(hurtbox)
-	hurtbox.receive_hit(_damage, _source, _direction)
-	deactivate()
+	if hurtbox.receive_hit(_damage, _source, _direction):
+		hit_confirmed.emit(hurtbox, _damage, _source, _direction)
+		deactivate()
 
 
 func get_source() -> Node:
@@ -81,7 +84,7 @@ func deactivate() -> void:
 	if not _active:
 		return
 	_active = false
-	monitoring = false
+	set_deferred("monitoring", false)
 	visible = false
 	set_physics_process(false)
 	queue_free()
