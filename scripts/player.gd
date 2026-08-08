@@ -144,7 +144,10 @@ func player_ready() -> void:
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_APPLICATION_FOCUS_OUT:
 		return
-	for action in GameSession.GAMEPLAY_INPUT_ACTIONS:
+	var game_session := get_node_or_null("/root/GameSession")
+	if game_session == null:
+		return
+	for action in game_session.GAMEPLAY_INPUT_ACTIONS:
 		Input.action_release(action)
 	Input.flush_buffered_events()
 	suppress_gameplay_input()
@@ -193,9 +196,22 @@ func receive_hit(amount: int, _source: Node, hit_direction: float) -> bool:
 		return true
 	_invulnerability_timer = invulnerability_time
 	_hit_stun_timer = hit_stun_time
+	_visual.show_hurt_feedback(hit_stun_time, 1.0)
 	velocity.x = signf(hit_direction) * damage_knockback_speed
 	_set_state(State.HIT)
 	return true
+
+
+func is_hurt_feedback_active() -> bool:
+	return _visual.has_method("is_hurt_feedback_active") and bool(_visual.call("is_hurt_feedback_active"))
+
+
+func get_hurt_feedback_remaining() -> float:
+	return float(_visual.call("get_hurt_feedback_remaining")) if _visual.has_method("get_hurt_feedback_remaining") else 0.0
+
+
+func get_hurt_feedback_intensity() -> float:
+	return float(_visual.call("get_hurt_feedback_intensity")) if _visual.has_method("get_hurt_feedback_intensity") else 0.0
 
 
 func _update_hit(delta: float) -> void:
@@ -212,6 +228,7 @@ func _enter_dead() -> void:
 	_cancel_attack()
 	_clear_owned_projectiles()
 	_clear_transient_movement_state(true, true)
+	_visual.clear_hurt_feedback()
 	current_state = State.DEAD
 	velocity = Vector2.ZERO
 	_death_respawn_timer = death_respawn_delay
@@ -357,6 +374,7 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	_hit_stun_timer = 0.0
 	_invulnerability_timer = 0.0
 	_death_respawn_timer = 0.0
+	_visual.clear_hurt_feedback()
 	_hurtbox.enabled = true
 	_hurtbox_collision.set_deferred("disabled", false)
 	_visual.modulate = Color.WHITE
@@ -690,6 +708,17 @@ func _profile_for_attack(attack_type: AttackType) -> PlayerBasicAttackProfile:
 	return weapon.light_attack_profile if attack_type == AttackType.LIGHT else weapon.heavy_attack_profile
 
 
+func _profile_for_id(profile_id: StringName) -> PlayerBasicAttackProfile:
+	var weapon := get_equipped_item(EquipmentSlot.WEAPON)
+	if weapon == null:
+		return null
+	if weapon.light_attack_profile != null and weapon.light_attack_profile.id == profile_id:
+		return weapon.light_attack_profile
+	if weapon.heavy_attack_profile != null and weapon.heavy_attack_profile.id == profile_id:
+		return weapon.heavy_attack_profile
+	return null
+
+
 func _start_attack(attack_type: AttackType) -> void:
 	if current_state == State.ATTACK:
 		return
@@ -817,11 +846,17 @@ func _set_attack_phase(phase: AttackPhase) -> void:
 	attack_phase_changed.emit(_current_attack_type, phase)
 
 
+func _apply_attack_hit_feedback(profile: PlayerBasicAttackProfile) -> void:
+	if profile == null:
+		return
+	_visual.show_attack_hit_feedback(profile.hit_feedback_time, profile.hit_feedback_intensity)
+
+
 func _on_attack_hit_confirmed(_hurtbox: Hurtbox, _damage: int, source: Node, _hit_direction: float) -> void:
 	if source != self or current_state != State.ATTACK or _current_attack_profile == null:
 		return
 	_current_attack_hit_confirmed = true
-	_visual.show_attack_hit_feedback()
+	_apply_attack_hit_feedback(_current_attack_profile)
 	attack_hit_confirmed.emit(_current_attack_type, _current_attack_profile.id)
 
 
@@ -837,7 +872,9 @@ func _on_projectile_hit_confirmed(
 		return
 	if current_state == State.ATTACK and _current_attack_profile != null and _current_attack_profile.id == profile_id:
 		_current_attack_hit_confirmed = true
-		_visual.show_attack_hit_feedback()
+		_apply_attack_hit_feedback(_current_attack_profile)
+	else:
+		_apply_attack_hit_feedback(_profile_for_id(profile_id))
 	attack_hit_confirmed.emit(attack_type, profile_id)
 
 
@@ -1086,6 +1123,7 @@ func respawn(reason: RespawnReason = RespawnReason.DEATH) -> void:
 	_hit_stun_timer = 0.0
 	_invulnerability_timer = 0.0
 	_death_respawn_timer = 0.0
+	_visual.clear_hurt_feedback()
 	_hurtbox.enabled = true
 	_hurtbox_collision.set_deferred("disabled", false)
 	_visual.modulate = Color.WHITE

@@ -116,6 +116,18 @@ func _physics_process(delta: float) -> void:
 		_clear_edge_drop_commitment()
 
 
+func is_hurt_feedback_active() -> bool:
+	return _hit_flash_timer > 0.0
+
+
+func get_hurt_feedback_remaining() -> float:
+	return _hit_flash_timer
+
+
+func get_hurt_feedback_intensity() -> float:
+	return 1.0 if _hit_flash_timer > 0.0 else 0.0
+
+
 func set_target(target: Node2D) -> void:
 	_target = target
 
@@ -685,6 +697,7 @@ func _cancel_attack() -> void:
 func _enter_dead() -> void:
 	current_state = State.DEAD
 	velocity = Vector2.ZERO
+	_hit_flash_timer = 0.0
 	_clear_edge_drop_commitment()
 	_clear_jump_chase()
 	_cancel_attack()
