@@ -7,6 +7,7 @@ var _active := false
 var _damage := 1
 var _source: Node
 var _hit_direction := 1.0
+var _metadata: Dictionary = {}
 var _hit_hurtboxes: Array[Hurtbox] = []
 
 @onready var _collision: CollisionShape2D = $CollisionShape2D
@@ -17,10 +18,11 @@ func _ready() -> void:
 	_collision.disabled = true
 
 
-func activate(damage: int, source: Node, hit_direction: float) -> void:
+func activate(damage: int, source: Node, hit_direction: float, metadata: Dictionary = {}) -> void:
 	_damage = damage
 	_source = source
 	_hit_direction = signf(hit_direction)
+	_metadata = metadata.duplicate(true)
 	_hit_hurtboxes.clear()
 	_active = true
 	_collision.set_deferred("disabled", false)
@@ -28,6 +30,7 @@ func activate(damage: int, source: Node, hit_direction: float) -> void:
 
 func deactivate() -> void:
 	_active = false
+	_metadata.clear()
 	_collision.set_deferred("disabled", true)
 
 
@@ -51,5 +54,5 @@ func _try_hit(area: Area2D) -> void:
 		return
 
 	_hit_hurtboxes.append(hurtbox)
-	if hurtbox.receive_hit(_damage, _source, _hit_direction):
+	if hurtbox.receive_hit(_damage, _source, _hit_direction, _metadata):
 		hit_confirmed.emit(hurtbox, _damage, _source, _hit_direction)

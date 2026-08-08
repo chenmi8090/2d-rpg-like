@@ -494,7 +494,7 @@ func _update_attack(delta: float) -> void:
 	var should_be_active := _attack_elapsed >= active_start and _attack_elapsed < active_end
 
 	if should_be_active and not _attack_hitbox_active:
-		_attack_hitbox.activate(maxi(attack.damage, 1), self, _facing_direction)
+		_attack_hitbox.activate(maxi(attack.damage, 1), self, _facing_direction, _attack_metadata(attack))
 		_attack_hitbox_active = true
 	elif not should_be_active and _attack_hitbox_active:
 		_attack_hitbox.deactivate()
@@ -504,6 +504,15 @@ func _update_attack(delta: float) -> void:
 		_cancel_attack()
 		_attack_cooldown_timer = maxf(attack.cooldown_time, 0.0)
 		current_state = State.CHASE if _target_is_on_current_map() else State.RETURN_HOME
+
+
+func _attack_metadata(attack: EnemyMeleeAttackDefinition) -> Dictionary:
+	if attack == null:
+		return {}
+	return {
+		"attack_id": attack.attack_id,
+		"is_critical": false,
+	}
 
 
 func _phase_for_attack_elapsed(
