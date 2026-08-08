@@ -44,6 +44,11 @@ enum State {
 	DEAD,
 }
 
+enum HitReaction {
+	NORMAL,
+	HEAVY,
+}
+
 const ONE_WAY_LAYER := 3
 const DROP_THROUGH_TIME := 0.2
 const DROP_THROUGH_SPEED := 100.0
@@ -75,6 +80,13 @@ const PLAYER_ATTACK_PROJECTILE_SCENE := preload("res://scenes/combat/player_atta
 @export var hit_stun_time := 0.25
 @export var invulnerability_time := 0.8
 @export var damage_knockback_speed := 240.0
+@export var heavy_hit_stun_time := 0.42
+@export_range(0.0, 1.0, 0.01) var heavy_hit_damage_ratio := 0.25
+@export_range(0.0, 1.0, 0.01) var heavy_airborne_damage_ratio := 0.15
+@export_range(0.0, 1.0, 0.01) var heavy_sprint_damage_ratio := 0.15
+@export_range(0.0, 5.0, 0.01) var heavy_reaction_protection_time := 1.2
+@export_range(0.0, 1000.0, 1.0) var heavy_hit_knockback_cap := 300.0
+@export_range(0.0, 1.0, 0.01) var true_sprint_hit_speed_ratio := 0.85
 @export var death_respawn_delay := 0.8
 @export var spawn_input_suppression_time := 0.12
 
@@ -101,6 +113,13 @@ var _next_heavy_attack_time := 0.0
 var _health := 10
 var _hit_stun_timer := 0.0
 var _invulnerability_timer := 0.0
+var _heavy_reaction_protection_timer := 0.0
+var _last_hit_reaction := HitReaction.NORMAL
+var _last_mitigated_hit_damage := 0
+var _last_hit_damage_ratio := 0.0
+var _pre_hit_state := State.IDLE
+var _pre_hit_velocity := Vector2.ZERO
+var _pre_hit_on_floor := true
 var _death_respawn_timer := 0.0
 var _spawn_position := Vector2.ZERO
 var _stardust_fragments := 0
@@ -157,6 +176,7 @@ func _physics_process(delta: float) -> void:
 	_elapsed_time += delta
 	_input_suppression_timer = maxf(_input_suppression_timer - delta, 0.0)
 	_update_invulnerability(delta)
+	_update_heavy_reaction_protection(delta)
 	if _action_just_pressed(&"reset"):
 		respawn(RespawnReason.MANUAL_RESET)
 		return
@@ -183,21 +203,22 @@ func _physics_process(delta: float) -> void:
 	_resolve_state()
 
 
-func receive_hit(amount: int, _source: Node, hit_direction: float) -> bool:
+func receive_hit(amount: int, _source: Node, hit_direction: float, metadata: Dictionary = {}) -> bool:
 	if current_state == State.DEAD or _invulnerability_timer > 0.0:
 		return false
+	_capture_pre_hit_snapshot()
 	_cancel_attack()
 	_clear_transient_movement_state(false, true)
 	var final_amount := _stats.mitigate_physical_damage(amount)
+	var reaction := _classify_hit_reaction(final_amount, hit_direction, metadata)
+	_record_hit_observability(reaction, final_amount)
 	_health = maxi(_health - final_amount, 0)
 	health_changed.emit(_health, get_max_health())
 	if _health <= 0:
 		_enter_dead()
 		return true
 	_invulnerability_timer = invulnerability_time
-	_hit_stun_timer = hit_stun_time
-	_visual.show_hurt_feedback(hit_stun_time, 1.0)
-	velocity.x = signf(hit_direction) * damage_knockback_speed
+	_apply_hit_reaction(reaction, hit_direction, metadata)
 	_set_state(State.HIT)
 	return true
 
@@ -212,6 +233,90 @@ func get_hurt_feedback_remaining() -> float:
 
 func get_hurt_feedback_intensity() -> float:
 	return float(_visual.call("get_hurt_feedback_intensity")) if _visual.has_method("get_hurt_feedback_intensity") else 0.0
+
+
+func get_last_hit_reaction() -> HitReaction:
+	return _last_hit_reaction
+
+
+func get_last_mitigated_hit_damage() -> int:
+	return _last_mitigated_hit_damage
+
+
+func get_last_hit_damage_ratio() -> float:
+	return _last_hit_damage_ratio
+
+
+func get_invulnerability_remaining() -> float:
+	return _invulnerability_timer
+
+
+func get_heavy_reaction_protection_remaining() -> float:
+	return _heavy_reaction_protection_timer
+
+
+func is_heavy_reaction_protected() -> bool:
+	return _heavy_reaction_protection_timer > 0.0
+
+
+func get_hit_stun_remaining() -> float:
+	return _hit_stun_timer
+
+
+func _capture_pre_hit_snapshot() -> void:
+	_pre_hit_state = current_state
+	_pre_hit_velocity = velocity
+	_pre_hit_on_floor = is_on_floor()
+
+
+func _classify_hit_reaction(mitigated_amount: int, hit_direction: float, metadata: Dictionary) -> HitReaction:
+	var mitigated_ratio := _hit_damage_ratio(mitigated_amount)
+	var candidate_heavy := false
+	if mitigated_ratio >= heavy_hit_damage_ratio:
+		candidate_heavy = true
+	if bool(metadata.get("is_critical", false)):
+		candidate_heavy = true
+	if mitigated_ratio >= heavy_airborne_damage_ratio and not _pre_hit_on_floor:
+		candidate_heavy = true
+	if mitigated_ratio >= heavy_sprint_damage_ratio and _was_true_sprint_into_hit(hit_direction):
+		candidate_heavy = true
+	if candidate_heavy and not is_heavy_reaction_protected():
+		return HitReaction.HEAVY
+	return HitReaction.NORMAL
+
+
+func _hit_damage_ratio(mitigated_amount: int) -> float:
+	return float(maxi(mitigated_amount, 0)) / float(get_max_health())
+
+
+func _record_hit_observability(reaction: HitReaction, mitigated_amount: int) -> void:
+	_last_hit_reaction = reaction
+	_last_mitigated_hit_damage = mitigated_amount
+	_last_hit_damage_ratio = _hit_damage_ratio(mitigated_amount)
+
+
+func _was_true_sprint_into_hit(hit_direction: float) -> bool:
+	if _pre_hit_state != State.SPRINT:
+		return false
+	var incoming_direction := signf(hit_direction)
+	if incoming_direction == 0.0:
+		return false
+	if absf(_pre_hit_velocity.x) < sprint_speed * true_sprint_hit_speed_ratio:
+		return false
+	return signf(_pre_hit_velocity.x) == -incoming_direction
+
+
+func _apply_hit_reaction(reaction: HitReaction, hit_direction: float, _metadata: Dictionary) -> void:
+	if reaction == HitReaction.HEAVY:
+		var knockback_speed := minf(maxf(damage_knockback_speed, 0.0), heavy_hit_knockback_cap)
+		_hit_stun_timer = maxf(heavy_hit_stun_time, hit_stun_time)
+		_visual.show_hurt_feedback(_hit_stun_timer, 1.0)
+		velocity.x = signf(hit_direction) * knockback_speed
+		_heavy_reaction_protection_timer = heavy_reaction_protection_time
+		return
+	_hit_stun_timer = hit_stun_time
+	_visual.show_hurt_feedback(hit_stun_time, 1.0)
+	velocity.x = 0.0
 
 
 func _update_hit(delta: float) -> void:
@@ -229,6 +334,7 @@ func _enter_dead() -> void:
 	_clear_owned_projectiles()
 	_clear_transient_movement_state(true, true)
 	_visual.clear_hurt_feedback()
+	_clear_hit_reaction_observability()
 	current_state = State.DEAD
 	velocity = Vector2.ZERO
 	_death_respawn_timer = death_respawn_delay
@@ -241,6 +347,17 @@ func _update_dead(delta: float) -> void:
 	_death_respawn_timer = maxf(_death_respawn_timer - delta, 0.0)
 	if _death_respawn_timer == 0.0:
 		respawn(RespawnReason.DEATH)
+
+
+func _update_heavy_reaction_protection(delta: float) -> void:
+	_heavy_reaction_protection_timer = maxf(_heavy_reaction_protection_timer - delta, 0.0)
+
+
+func _clear_hit_reaction_observability() -> void:
+	_heavy_reaction_protection_timer = 0.0
+	_last_hit_reaction = HitReaction.NORMAL
+	_last_mitigated_hit_damage = 0
+	_last_hit_damage_ratio = 0.0
 
 
 func _update_invulnerability(delta: float) -> void:
@@ -373,6 +490,7 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	_health = get_max_health()
 	_hit_stun_timer = 0.0
 	_invulnerability_timer = 0.0
+	_clear_hit_reaction_observability()
 	_death_respawn_timer = 0.0
 	_visual.clear_hurt_feedback()
 	_hurtbox.enabled = true
@@ -772,7 +890,7 @@ func _update_attack(delta: float) -> void:
 	if _current_attack_profile.delivery == PlayerBasicAttackProfile.Delivery.MELEE:
 		var should_be_active := _attack_elapsed >= _current_attack_profile.hit_start and _attack_elapsed < _current_attack_profile.hit_end
 		if should_be_active and not _attack_hitbox_active:
-			_attack_hitbox.activate(_current_attack_damage, self, _attack_direction)
+			_attack_hitbox.activate(_current_attack_damage, self, _attack_direction, _current_attack_metadata())
 			_attack_hitbox_active = true
 		elif not should_be_active and _attack_hitbox_active:
 			_attack_hitbox.deactivate()
@@ -792,7 +910,7 @@ func _spawn_attack_projectile(profile: PlayerBasicAttackProfile) -> void:
 	projectile.hit_confirmed.connect(_on_projectile_hit_confirmed.bind(_current_attack_type, profile.id))
 	get_parent().add_child(projectile)
 	projectile.global_position = global_position + Vector2(profile.projectile_spawn_offset.x * _attack_direction, profile.projectile_spawn_offset.y)
-	projectile.initialize(profile, _current_attack_damage, self, _attack_direction)
+	projectile.initialize(profile, _current_attack_damage, self, _attack_direction, _current_attack_metadata())
 
 
 func _finish_attack() -> void:
@@ -824,6 +942,15 @@ func _clear_attack_snapshot() -> void:
 	_current_attack_damage = 1
 	_current_attack_projectile_spawned = false
 	_current_attack_hit_confirmed = false
+
+
+func _current_attack_metadata() -> Dictionary:
+	if _current_attack_profile == null:
+		return {}
+	return {
+		"attack_id": _current_attack_profile.id,
+		"is_critical": _current_attack_critical,
+	}
 
 
 func _phase_for_attack_elapsed(elapsed: float, profile: PlayerBasicAttackProfile) -> AttackPhase:
@@ -1122,6 +1249,7 @@ func respawn(reason: RespawnReason = RespawnReason.DEATH) -> void:
 	_health = get_max_health()
 	_hit_stun_timer = 0.0
 	_invulnerability_timer = 0.0
+	_clear_hit_reaction_observability()
 	_death_respawn_timer = 0.0
 	_visual.clear_hurt_feedback()
 	_hurtbox.enabled = true

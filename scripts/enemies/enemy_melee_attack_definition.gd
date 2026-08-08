@@ -1,6 +1,9 @@
 class_name EnemyMeleeAttackDefinition
 extends Resource
 
+const DEFAULT_ATTACK_ID := &"enemy_melee"
+
+@export var attack_id: StringName = DEFAULT_ATTACK_ID
 @export_range(1, 1000, 1) var damage := 2
 @export var hitbox_size := Vector2(48.0, 42.0)
 @export var hitbox_offset := Vector2(38.0, -28.0)

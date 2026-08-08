@@ -4,6 +4,7 @@
 
 [resource]
 script = ExtResource("1_attack")
+attack_id = &"patrol_grunt_melee"
 damage = 2
 hitbox_size = Vector2(80, 42)
 hitbox_offset = Vector2(22, -28)

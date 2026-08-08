@@ -13,6 +13,7 @@ var _travelled := 0.0
 var _active := false
 var _color := Color.WHITE
 var _visual_size := Vector2(26.0, 14.0)
+var _metadata: Dictionary = {}
 var _hit_hurtboxes: Array[Hurtbox] = []
 
 @onready var _collision: CollisionShape2D = $CollisionShape2D
@@ -23,7 +24,7 @@ func _ready() -> void:
 	area_entered.connect(_on_area_entered)
 
 
-func initialize(profile: PlayerBasicAttackProfile, damage: int, source: Node, direction: float) -> void:
+func initialize(profile: PlayerBasicAttackProfile, damage: int, source: Node, direction: float, metadata: Dictionary = {}) -> void:
 	_damage = maxi(damage, 1)
 	_source = source
 	_direction = signf(direction) if direction != 0.0 else 1.0
@@ -32,6 +33,7 @@ func initialize(profile: PlayerBasicAttackProfile, damage: int, source: Node, di
 	_max_distance = maxf(profile.projectile_max_distance, 1.0)
 	_visual_size = profile.projectile_size
 	_color = profile.color
+	_metadata = metadata.duplicate(true)
 	if _collision.shape is RectangleShape2D:
 		_collision.shape = _collision.shape.duplicate()
 		(_collision.shape as RectangleShape2D).size = Vector2(maxf(_visual_size.x, 1.0), maxf(_visual_size.y, 1.0))
@@ -63,7 +65,7 @@ func _try_hit(area: Area2D) -> void:
 	if hurtbox in _hit_hurtboxes:
 		return
 	_hit_hurtboxes.append(hurtbox)
-	if hurtbox.receive_hit(_damage, _source, _direction):
+	if hurtbox.receive_hit(_damage, _source, _direction, _metadata):
 		hit_confirmed.emit(hurtbox, _damage, _source, _direction)
 		deactivate()
 
@@ -84,6 +86,7 @@ func deactivate() -> void:
 	if not _active:
 		return
 	_active = false
+	_metadata.clear()
 	set_deferred("monitoring", false)
 	visible = false
 	set_physics_process(false)
