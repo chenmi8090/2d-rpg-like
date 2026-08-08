@@ -7,6 +7,10 @@ var _attack_weapon_type: StringName = &"sword"
 var _attack_visual_key: StringName = &""
 var _attack_phase := 0
 var _attack_hit_feedback_timer := 0.0
+var _attack_hit_feedback_intensity := 1.0
+var _hurt_feedback_timer := 0.0
+var _hurt_feedback_duration := 0.0
+var _hurt_feedback_intensity := 1.0
 var _facing_direction := 1.0
 
 const ATTACK_PHASE_NONE := 0
@@ -36,16 +40,48 @@ func set_attack_phase(phase: int) -> void:
 	queue_redraw()
 
 
-func show_attack_hit_feedback() -> void:
-	_attack_hit_feedback_timer = ATTACK_HIT_FEEDBACK_TIME
+func show_attack_hit_feedback(duration := ATTACK_HIT_FEEDBACK_TIME, intensity := 1.0) -> void:
+	_attack_hit_feedback_timer = maxf(duration, 0.0)
+	_attack_hit_feedback_intensity = maxf(intensity, 0.0)
 	queue_redraw()
+
+
+func show_hurt_feedback(duration: float, intensity := 1.0) -> void:
+	_hurt_feedback_duration = maxf(duration, 0.0)
+	_hurt_feedback_timer = _hurt_feedback_duration
+	_hurt_feedback_intensity = maxf(intensity, 0.0)
+	queue_redraw()
+
+
+func clear_hurt_feedback() -> void:
+	_hurt_feedback_timer = 0.0
+	_hurt_feedback_duration = 0.0
+	_hurt_feedback_intensity = 1.0
+	queue_redraw()
+
+
+func is_hurt_feedback_active() -> bool:
+	return _hurt_feedback_timer > 0.0
+
+
+func get_hurt_feedback_remaining() -> float:
+	return _hurt_feedback_timer
+
+
+func get_hurt_feedback_intensity() -> float:
+	return _hurt_feedback_intensity if _hurt_feedback_timer > 0.0 else 0.0
 
 
 func _process(delta: float) -> void:
-	if _attack_hit_feedback_timer <= 0.0:
-		return
-	_attack_hit_feedback_timer = maxf(_attack_hit_feedback_timer - delta, 0.0)
-	queue_redraw()
+	var needs_redraw := false
+	if _attack_hit_feedback_timer > 0.0:
+		_attack_hit_feedback_timer = maxf(_attack_hit_feedback_timer - delta, 0.0)
+		needs_redraw = true
+	if _hurt_feedback_timer > 0.0:
+		_hurt_feedback_timer = maxf(_hurt_feedback_timer - delta, 0.0)
+		needs_redraw = true
+	if needs_redraw:
+		queue_redraw()
 
 
 func set_facing_direction(direction: float) -> void:
@@ -71,12 +107,14 @@ func _draw() -> void:
 
 
 func _draw_standing() -> void:
-	draw_circle(Vector2(0, -34), 13.0, Color("f7d9b5"))
-	draw_rect(Rect2(-16, -21, 32, 34), Color("e85d4a"), true)
+	var skin_color := _hurt_feedback_color(Color("f7d9b5"))
+	var shirt_color := _hurt_feedback_color(Color("e85d4a"))
+	draw_circle(Vector2(0, -34), 13.0, skin_color)
+	draw_rect(Rect2(-16, -21, 32, 34), shirt_color, true)
 	draw_rect(Rect2(-15, 13, 11, 19), Color("25465f"), true)
 	draw_rect(Rect2(4, 13, 11, 19), Color("25465f"), true)
-	draw_rect(Rect2(-25, -17, 10, 28), Color("f7d9b5"), true)
-	draw_rect(Rect2(15, -17, 10, 28), Color("f7d9b5"), true)
+	draw_rect(Rect2(-25, -17, 10, 28), skin_color, true)
+	draw_rect(Rect2(15, -17, 10, 28), skin_color, true)
 	if _attacking:
 		_draw_attack_cue()
 	draw_circle(Vector2(-5, -37), 1.8, Color("20313d"))
@@ -106,12 +144,12 @@ func _draw_sword_attack() -> void:
 	var hand := Vector2(18.0 * direction, -12.0)
 	var tip := Vector2((18.0 + length) * direction, y)
 	var blade_color := Color("fff7cf") if _attack_hit_feedback_timer > 0.0 else Color("d9edf4")
-	blade_color.a = phase_alpha
+	blade_color.a = minf(phase_alpha * (1.0 + 0.25 * _attack_hit_feedback_intensity), 1.0)
 	var edge_color := Color("f0b85f") if heavy else Color("c9eef5")
 	edge_color.a = phase_alpha
-	draw_line(hand, tip, blade_color, 7.0 if heavy else 5.0)
+	draw_line(hand, tip, blade_color, (7.0 if heavy else 5.0) + (2.0 * _attack_hit_feedback_intensity if _attack_hit_feedback_timer > 0.0 else 0.0))
 	draw_line(hand, tip, Color(0.44, 0.53, 0.57, phase_alpha), 2.0)
-	draw_circle(tip, 7.0 if _attack_hit_feedback_timer > 0.0 else 6.0 if heavy else 4.0, edge_color)
+	draw_circle(tip, (7.0 + 2.0 * _attack_hit_feedback_intensity) if _attack_hit_feedback_timer > 0.0 else 6.0 if heavy else 4.0, edge_color)
 	if _attack_phase == ATTACK_PHASE_ACTIVE:
 		var arc_radius := 68.0 if heavy else 52.0
 		draw_arc(hand, arc_radius, -0.75 if direction > 0.0 else PI - 0.75, 0.25 if direction > 0.0 else PI + 0.25, 12, edge_color, 4.0 if heavy else 2.5)
@@ -132,9 +170,9 @@ func _draw_staff_attack() -> void:
 		phase_alpha = 0.5
 	var orb_radius := (12.0 if heavy else 8.0) * phase_scale
 	var orb_color := Color("fff7cf") if _attack_hit_feedback_timer > 0.0 else Color("9f6df4") if heavy else Color("58c9ef")
-	orb_color.a = phase_alpha
+	orb_color.a = minf(phase_alpha * (1.0 + 0.25 * _attack_hit_feedback_intensity), 1.0)
 	draw_line(start, tip, Color(0.46, 0.33, 0.24, phase_alpha), 6.0)
-	draw_circle(tip, orb_radius, orb_color)
+	draw_circle(tip, orb_radius + (3.0 * _attack_hit_feedback_intensity if _attack_hit_feedback_timer > 0.0 else 0.0), orb_color)
 	draw_circle(tip, maxf(orb_radius * 0.42, 2.0), Color(1.0, 1.0, 1.0, phase_alpha * 0.9))
 	if _attack_phase == ATTACK_PHASE_ACTIVE:
 		draw_arc(tip, orb_radius + 6.0, 0.0, TAU, 16, orb_color, 2.5)
@@ -158,14 +196,26 @@ func _draw_attack_arm() -> void:
 
 func _draw_crouched() -> void:
 	var facing := _facing_direction
-	draw_circle(Vector2(8 * facing, -12), 12.0, Color("f7d9b5"))
-	draw_rect(Rect2(-16, -9, 30, 24), Color("e85d4a"), true)
+	var skin_color := _hurt_feedback_color(Color("f7d9b5"))
+	var shirt_color := _hurt_feedback_color(Color("e85d4a"))
+	draw_circle(Vector2(8 * facing, -12), 12.0, skin_color)
+	draw_rect(Rect2(-16, -9, 30, 24), shirt_color, true)
 	if facing > 0.0:
 		draw_rect(Rect2(-14, 15, 25, 10), Color("25465f"), true)
 		draw_rect(Rect2(8, 23, 20, 9), Color("25465f"), true)
-		draw_rect(Rect2(-23, -5, 10, 20), Color("f7d9b5"), true)
+		draw_rect(Rect2(-23, -5, 10, 20), skin_color, true)
 	else:
 		draw_rect(Rect2(-11, 15, 25, 10), Color("25465f"), true)
 		draw_rect(Rect2(-28, 23, 20, 9), Color("25465f"), true)
-		draw_rect(Rect2(13, -5, 10, 20), Color("f7d9b5"), true)
+		draw_rect(Rect2(13, -5, 10, 20), skin_color, true)
 	draw_circle(Vector2(11 * facing, -15), 1.8, Color("20313d"))
+
+
+func _hurt_feedback_color(base_color: Color) -> Color:
+	if _hurt_feedback_timer <= 0.0:
+		return base_color
+	var progress := 1.0
+	if _hurt_feedback_duration > 0.0:
+		progress = clampf(_hurt_feedback_timer / _hurt_feedback_duration, 0.0, 1.0)
+	var amount := clampf(0.35 + 0.35 * _hurt_feedback_intensity * progress, 0.0, 0.85)
+	return base_color.lerp(Color("fff1a8"), amount)

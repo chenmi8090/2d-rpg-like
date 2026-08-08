@@ -23,3 +23,5 @@ projectile_lifetime = 0.85
 projectile_max_distance = 480.0
 visual_key = &"staff"
 color = Color(0.38, 0.82, 1, 1)
+hit_feedback_time = 0.09
+hit_feedback_intensity = 0.9

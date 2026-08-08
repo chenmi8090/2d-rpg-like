@@ -20,3 +20,5 @@ melee_hitbox_offset = Vector2(50, -20)
 melee_hitbox_size = Vector2(60, 28)
 visual_key = &"sword"
 color = Color(0.78, 0.9, 1, 1)
+hit_feedback_time = 0.08
+hit_feedback_intensity = 0.8
