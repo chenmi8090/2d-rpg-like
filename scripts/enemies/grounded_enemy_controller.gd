@@ -4,6 +4,7 @@ extends CharacterBody2D
 signal drop_requested(enemy: GroundedEnemyController, drop_rules: Array[EnemyDropRule])
 signal equipment_drop_requested(enemy: GroundedEnemyController, drop_rules: Array[EquipmentDropRule])
 signal defeated(enemy: GroundedEnemyController, source: Node)
+signal attack_phase_changed(phase: int)
 
 enum State {
 	IDLE,
@@ -14,6 +15,13 @@ enum State {
 	HIT,
 	DEAD,
 	JUMP_CHASE,
+}
+
+enum AttackPhase {
+	NONE,
+	STARTUP,
+	ACTIVE,
+	RECOVERY,
 }
 
 @export var definition: EnemyDefinition
@@ -32,6 +40,7 @@ var _hit_flash_timer := 0.0
 var _attack_elapsed := 0.0
 var _attack_cooldown_timer := 0.0
 var _attack_hitbox_active := false
+var _current_attack_phase := AttackPhase.NONE
 var _target_acquired := false
 var _drops_emitted := false
 var _defeated_emitted := false
@@ -115,6 +124,14 @@ func is_engaged_with_target() -> bool:
 	if not visible or _target == null or not is_instance_valid(_target):
 		return false
 	return current_state in [State.CHASE, State.ATTACK, State.HIT, State.JUMP_CHASE]
+
+
+func get_attack_phase() -> AttackPhase:
+	return _current_attack_phase
+
+
+func is_attack_hitbox_active() -> bool:
+	return _attack_hitbox_active
 
 
 func _resolve_target() -> void:
@@ -439,17 +456,26 @@ func _start_attack() -> void:
 	_attack_elapsed = 0.0
 	_attack_hitbox_active = false
 	_position_attack_hitbox()
-	queue_redraw()
+	_set_attack_phase(AttackPhase.STARTUP)
 
 
 func _update_attack(delta: float) -> void:
 	velocity.x = 0.0
 	var attack := _attack_definition()
 	if attack == null:
+		_cancel_attack()
 		current_state = State.CHASE
+		return
+	if not _target_is_on_current_map():
+		_target_acquired = false
+		_cancel_attack()
+		current_state = State.RETURN_HOME
 		return
 
 	_attack_elapsed += delta
+	_set_attack_phase(
+		_phase_for_attack_elapsed(_attack_elapsed, attack)
+	)
 	var active_start := maxf(attack.windup_time, 0.0)
 	var active_end := active_start + maxf(attack.active_time, 0.01)
 	var total_duration := active_end + maxf(attack.recovery_time, 0.0)
@@ -466,6 +492,32 @@ func _update_attack(delta: float) -> void:
 		_cancel_attack()
 		_attack_cooldown_timer = maxf(attack.cooldown_time, 0.0)
 		current_state = State.CHASE if _target_is_on_current_map() else State.RETURN_HOME
+
+
+func _phase_for_attack_elapsed(
+	elapsed: float,
+	attack: EnemyMeleeAttackDefinition
+) -> AttackPhase:
+	if attack == null:
+		return AttackPhase.NONE
+	var active_start := maxf(attack.windup_time, 0.0)
+	var active_end := active_start + maxf(attack.active_time, 0.01)
+	var total_duration := active_end + maxf(attack.recovery_time, 0.0)
+	if elapsed < active_start:
+		return AttackPhase.STARTUP
+	if elapsed < active_end:
+		return AttackPhase.ACTIVE
+	if elapsed < total_duration:
+		return AttackPhase.RECOVERY
+	return AttackPhase.NONE
+
+
+func _set_attack_phase(phase: AttackPhase) -> void:
+	if _current_attack_phase == phase:
+		return
+	_current_attack_phase = phase
+	attack_phase_changed.emit(phase)
+	queue_redraw()
 
 
 func _update_return_home() -> void:
@@ -627,6 +679,7 @@ func _cancel_attack() -> void:
 	_attack_hitbox.deactivate()
 	_attack_hitbox_active = false
 	_attack_elapsed = 0.0
+	_set_attack_phase(AttackPhase.NONE)
 
 
 func _enter_dead() -> void:
@@ -753,9 +806,6 @@ func _draw_live_body() -> void:
 		draw_line(Vector2(0, -53), Vector2(0, -31), _trim_color(), 3.0)
 	draw_circle(Vector2(7 * _facing_direction, -63), 3.0, _eye_color())
 	draw_circle(Vector2(8 * _facing_direction, -63), 1.4, _pupil_color())
-	if current_state == State.ATTACK:
-		var attack_x := 30.0 * _facing_direction
-		draw_circle(Vector2(attack_x, -34), 9.0, _attack_tell_color())
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
