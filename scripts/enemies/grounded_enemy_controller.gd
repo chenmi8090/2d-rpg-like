@@ -146,6 +146,26 @@ func is_attack_hitbox_active() -> bool:
 	return _attack_hitbox_active
 
 
+func get_facing_direction() -> float:
+	return _normalized_facing_direction()
+
+
+func get_attack_hitbox_geometry() -> Dictionary:
+	var size := Vector2.ZERO
+	if _attack_collision.shape is RectangleShape2D:
+		size = (_attack_collision.shape as RectangleShape2D).size
+	return {
+		"position": _attack_hitbox.position,
+		"rectangle_size": size,
+		"active": _attack_hitbox_active,
+		"facing_direction": _normalized_facing_direction(),
+	}
+
+
+func get_attack_visual_pose() -> Dictionary:
+	return _attack_visual_pose()
+
+
 func _resolve_target() -> void:
 	if _target != null and is_instance_valid(_target):
 		return
@@ -488,6 +508,7 @@ func _update_attack(delta: float) -> void:
 	_set_attack_phase(
 		_phase_for_attack_elapsed(_attack_elapsed, attack)
 	)
+	queue_redraw()
 	var active_start := maxf(attack.windup_time, 0.0)
 	var active_end := active_start + maxf(attack.active_time, 0.01)
 	var total_duration := active_end + maxf(attack.recovery_time, 0.0)
@@ -531,6 +552,167 @@ func _phase_for_attack_elapsed(
 	if elapsed < total_duration:
 		return AttackPhase.RECOVERY
 	return AttackPhase.NONE
+
+
+func _attack_phase_progress(elapsed: float, attack: EnemyMeleeAttackDefinition) -> float:
+	if attack == null:
+		return 0.0
+	var active_start := maxf(attack.windup_time, 0.0)
+	var active_duration := maxf(attack.active_time, 0.01)
+	var recovery_duration := maxf(attack.recovery_time, 0.0)
+	match _phase_for_attack_elapsed(elapsed, attack):
+		AttackPhase.STARTUP:
+			return 1.0 if active_start <= 0.0 else clampf(elapsed / active_start, 0.0, 1.0)
+		AttackPhase.ACTIVE:
+			return clampf((elapsed - active_start) / active_duration, 0.0, 1.0)
+		AttackPhase.RECOVERY:
+			return 1.0 if recovery_duration <= 0.0 else clampf((elapsed - active_start - active_duration) / recovery_duration, 0.0, 1.0)
+		_:
+			return 0.0
+
+
+func _attack_total_progress(elapsed: float, attack: EnemyMeleeAttackDefinition) -> float:
+	if attack == null:
+		return 0.0
+	var total_duration := maxf(attack.windup_time, 0.0) + maxf(attack.active_time, 0.01) + maxf(attack.recovery_time, 0.0)
+	return clampf(elapsed / maxf(total_duration, 0.01), 0.0, 1.0)
+
+
+func _attack_visual_pose() -> Dictionary:
+	var attack := _attack_definition()
+	var facing := _normalized_facing_direction()
+	var phase_progress := 0.0
+	var total_progress := 0.0
+	var amplitude := 0.0
+	if attack != null and _current_attack_phase != AttackPhase.NONE:
+		phase_progress = _attack_phase_progress(_attack_elapsed, attack)
+		total_progress = _attack_total_progress(_attack_elapsed, attack)
+		amplitude = _attack_visual_amplitude(attack)
+
+	var neutral := _neutral_attack_pose_points(facing)
+	var windup := neutral.duplicate()
+	var strike := neutral.duplicate()
+	if amplitude > 0.0:
+		windup = _windup_attack_pose_points(facing, amplitude)
+		strike = _strike_attack_pose_points(facing, amplitude)
+
+	var points := neutral
+	var body_offset := Vector2.ZERO
+	var head_offset := Vector2.ZERO
+	var body_squash := 0.0
+	var body_lean := 0.0
+	var arm_extension := 0.0
+	var tell_alpha := 0.0
+	var motion_alpha := 0.0
+	match _current_attack_phase:
+		AttackPhase.STARTUP:
+			var t := _ease_out_cubic(phase_progress)
+			points = _lerp_pose_points(neutral, windup, t)
+			body_offset = Vector2(-facing * 2.0, 3.0) * amplitude * t
+			head_offset = Vector2(-facing * 2.4, 1.8) * amplitude * t
+			body_squash = 0.08 * amplitude * t
+			body_lean = -0.12 * amplitude * t
+			arm_extension = 0.32 * amplitude * t
+			tell_alpha = 0.25 * t
+			motion_alpha = 0.0
+		AttackPhase.ACTIVE:
+			var strike_t := _ease_out_cubic(clampf(phase_progress / 0.35, 0.0, 1.0))
+			points = _lerp_pose_points(windup, strike, strike_t)
+			var settle := 1.0 - clampf((phase_progress - 0.35) / 0.65, 0.0, 1.0) * 0.2
+			body_offset = Vector2(facing * 2.6, -0.8) * amplitude * strike_t * settle
+			head_offset = Vector2(facing * 2.0, -0.6) * amplitude * strike_t * settle
+			body_squash = 0.03 * amplitude * (1.0 - strike_t)
+			body_lean = 0.16 * amplitude * strike_t * settle
+			arm_extension = lerpf(0.32, 1.0, strike_t) * amplitude
+			tell_alpha = 0.45 * (1.0 - clampf(phase_progress, 0.0, 1.0))
+			motion_alpha = 0.75 * strike_t * settle
+		AttackPhase.RECOVERY:
+			var recover_t := _ease_in_out_cubic(phase_progress)
+			points = _lerp_pose_points(strike, neutral, recover_t)
+			var remaining := 1.0 - recover_t
+			body_offset = Vector2(facing * 1.4, 0.0) * amplitude * remaining
+			head_offset = Vector2(facing * 0.9, 0.0) * amplitude * remaining
+			body_squash = 0.0
+			body_lean = 0.08 * amplitude * remaining
+			arm_extension = amplitude * remaining
+			tell_alpha = 0.0
+			motion_alpha = 0.25 * remaining
+
+	return {
+		"phase_progress": phase_progress,
+		"total_progress": total_progress,
+		"facing_direction": facing,
+		"amplitude": amplitude,
+		"body_offset": body_offset,
+		"head_offset": head_offset,
+		"body_squash": body_squash,
+		"body_lean": body_lean,
+		"arm_extension": arm_extension,
+		"front_shoulder": points["front_shoulder"],
+		"front_elbow": points["front_elbow"],
+		"front_hand": points["front_hand"],
+		"rear_hand": points["rear_hand"],
+		"fist_radius": 3.5 + amplitude * 0.6 if amplitude > 0.0 else 0.0,
+		"tell_alpha": tell_alpha,
+		"motion_alpha": motion_alpha,
+	}
+
+
+func _neutral_attack_pose_points(facing: float) -> Dictionary:
+	return {
+		"front_shoulder": Vector2(14.0 * facing, -44.0),
+		"front_elbow": Vector2(19.0 * facing, -39.0),
+		"front_hand": Vector2(22.0 * facing, -35.0),
+		"rear_hand": Vector2(-18.0 * facing, -32.0),
+	}
+
+
+func _windup_attack_pose_points(facing: float, amplitude: float) -> Dictionary:
+	return {
+		"front_shoulder": Vector2(12.0 * facing, -44.5),
+		"front_elbow": Vector2(19.0 * facing, -39.0) + Vector2(-22.0 * facing, -1.0) * amplitude,
+		"front_hand": Vector2(22.0 * facing, -35.0) + Vector2(-40.0 * facing, 2.6) * amplitude,
+		"rear_hand": Vector2(-18.0 * facing, -32.0) + Vector2(-5.0 * facing, 0.8) * amplitude,
+	}
+
+
+func _strike_attack_pose_points(facing: float, amplitude: float) -> Dictionary:
+	return {
+		"front_shoulder": Vector2(15.0 * facing, -44.0),
+		"front_elbow": Vector2(19.0 * facing, -39.0) + Vector2(10.0 * facing, -3.5) * amplitude,
+		"front_hand": Vector2(22.0 * facing, -35.0) + Vector2(20.0 * facing, -5.0) * amplitude,
+		"rear_hand": Vector2(-18.0 * facing, -32.0) + Vector2(-4.0 * facing, 1.0) * amplitude,
+	}
+
+
+func _lerp_pose_points(from_points: Dictionary, to_points: Dictionary, weight: float) -> Dictionary:
+	var t := clampf(weight, 0.0, 1.0)
+	return {
+		"front_shoulder": (from_points["front_shoulder"] as Vector2).lerp(to_points["front_shoulder"] as Vector2, t),
+		"front_elbow": (from_points["front_elbow"] as Vector2).lerp(to_points["front_elbow"] as Vector2, t),
+		"front_hand": (from_points["front_hand"] as Vector2).lerp(to_points["front_hand"] as Vector2, t),
+		"rear_hand": (from_points["rear_hand"] as Vector2).lerp(to_points["rear_hand"] as Vector2, t),
+	}
+
+
+func _attack_visual_amplitude(attack: EnemyMeleeAttackDefinition) -> float:
+	var armor_factor := 1.0 + clampf(_armor_color().a, 0.0, 1.0) * 0.18
+	var windup_factor := 1.0 + clampf(maxf(attack.windup_time, 0.0) / 0.45, 0.0, 1.0) * 0.22
+	return clampf(armor_factor * windup_factor, 0.8, 1.6)
+
+
+func _ease_out_cubic(value: float) -> float:
+	var t := clampf(value, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+
+func _ease_in_out_cubic(value: float) -> float:
+	var t := clampf(value, 0.0, 1.0)
+	return 4.0 * t * t * t if t < 0.5 else 1.0 - pow(-2.0 * t + 2.0, 3.0) * 0.5
+
+
+func _normalized_facing_direction() -> float:
+	return 1.0 if _facing_direction >= 0.0 else -1.0
 
 
 func _set_attack_phase(phase: AttackPhase) -> void:
@@ -701,6 +883,7 @@ func _cancel_attack() -> void:
 	_attack_hitbox_active = false
 	_attack_elapsed = 0.0
 	_set_attack_phase(AttackPhase.NONE)
+	queue_redraw()
 
 
 func _enter_dead() -> void:
@@ -816,19 +999,52 @@ func _draw_health_bar() -> void:
 
 func _draw_live_body() -> void:
 	var scale := _visual_scale()
+	var pose := _attack_visual_pose()
+	var facing := float(pose["facing_direction"])
+	var body_offset := pose["body_offset"] as Vector2
+	var head_offset := pose["head_offset"] as Vector2
+	var body_lean := float(pose["body_lean"])
+	var body_squash := float(pose["body_squash"])
+	var lean_offset := Vector2(facing * body_lean * 7.0, 0.0)
+	var upper_body_offset := body_offset + lean_offset
 	var body_color := _flash_color() if _hit_flash_timer > 0.0 else _body_color()
+	var armor_color := _flash_color() if _hit_flash_timer > 0.0 and _armor_color().a > 0.0 else _armor_color()
+	var arm_color := _flash_color() if _hit_flash_timer > 0.0 else _trim_color()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(scale, scale))
-	draw_rect(Rect2(-21, -58, 42, 48), body_color, true)
-	draw_circle(Vector2(0, -60), 19.0, body_color)
+	draw_rect(Rect2(Vector2(-21, -58 + body_squash * 7.0) + upper_body_offset, Vector2(42, 48 - body_squash * 7.0)), body_color, true)
+	draw_circle(Vector2(0, -60) + head_offset + lean_offset, 19.0, body_color)
 	draw_rect(Rect2(-19, -10, 14, 10), _trim_color(), true)
 	draw_rect(Rect2(5, -10, 14, 10), _trim_color(), true)
+	_draw_attack_arms(pose, arm_color, upper_body_offset)
 	if _armor_color().a > 0.0:
-		draw_rect(Rect2(-23, -53, 46, 22), _armor_color(), true)
-		draw_rect(Rect2(-17, -76, 34, 10), _armor_color(), true)
-		draw_line(Vector2(0, -53), Vector2(0, -31), _trim_color(), 3.0)
-	draw_circle(Vector2(7 * _facing_direction, -63), 3.0, _eye_color())
-	draw_circle(Vector2(8 * _facing_direction, -63), 1.4, _pupil_color())
+		draw_rect(Rect2(Vector2(-23, -53 + body_squash * 4.0) + upper_body_offset, Vector2(46, 22 - body_squash * 4.0)), armor_color, true)
+		draw_rect(Rect2(Vector2(-17, -76) + (head_offset + lean_offset) * 0.6 + upper_body_offset * 0.4, Vector2(34, 10)), armor_color, true)
+		draw_line(Vector2(0, -53) + upper_body_offset, Vector2(0, -31) + upper_body_offset, _trim_color(), 3.0)
+	draw_circle(Vector2(7 * facing, -63) + head_offset + lean_offset, 3.0, _eye_color())
+	draw_circle(Vector2(8 * facing, -63) + head_offset + lean_offset, 1.4, _pupil_color())
+	if float(pose["tell_alpha"]) > 0.0 or float(pose["motion_alpha"]) > 0.0:
+		var tell_color := _attack_tell_color()
+		tell_color.a *= maxf(float(pose["tell_alpha"]), float(pose["motion_alpha"]))
+		draw_line(
+			(pose["front_elbow"] as Vector2) + upper_body_offset,
+			(pose["front_hand"] as Vector2) + upper_body_offset,
+			tell_color,
+			2.0 + 2.0 * float(pose["motion_alpha"])
+		)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_attack_arms(pose: Dictionary, arm_color: Color, upper_body_offset: Vector2) -> void:
+	var shoulder := (pose["front_shoulder"] as Vector2) + upper_body_offset
+	var elbow := (pose["front_elbow"] as Vector2) + upper_body_offset
+	var hand := (pose["front_hand"] as Vector2) + upper_body_offset
+	var rear_shoulder := Vector2(-13.0 * float(pose["facing_direction"]), -43.0) + upper_body_offset
+	var rear_hand := (pose["rear_hand"] as Vector2) + upper_body_offset
+	draw_line(shoulder, elbow, arm_color, 5.0)
+	draw_line(elbow, hand, arm_color, 5.0)
+	draw_circle(hand, float(pose["fist_radius"]), arm_color)
+	draw_line(rear_shoulder, rear_hand, arm_color.darkened(0.12), 4.0)
+	draw_circle(rear_hand, maxf(float(pose["fist_radius"]) - 0.5, 0.0), arm_color.darkened(0.12))
 
 
 func _draw_dead_body() -> void:
