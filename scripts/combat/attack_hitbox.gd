@@ -1,6 +1,8 @@
 class_name AttackHitbox
 extends Area2D
 
+signal hit_confirmed(hurtbox: Hurtbox, damage: int, source: Node, hit_direction: float)
+
 var _active := false
 var _damage := 1
 var _source: Node
@@ -49,4 +51,5 @@ func _try_hit(area: Area2D) -> void:
 		return
 
 	_hit_hurtboxes.append(hurtbox)
-	hurtbox.receive_hit(_damage, _source, _hit_direction)
+	if hurtbox.receive_hit(_damage, _source, _hit_direction):
+		hit_confirmed.emit(hurtbox, _damage, _source, _hit_direction)

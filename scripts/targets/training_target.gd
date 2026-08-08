@@ -21,12 +21,13 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-func receive_hit(amount: int, _source: Node, hit_direction: float) -> void:
+func receive_hit(amount: int, _source: Node, hit_direction: float) -> bool:
 	_hit_count += amount
 	_flash_timer = flash_time
 	_hit_direction = hit_direction
 	_update_label()
 	queue_redraw()
+	return true
 
 
 func reset() -> void:
