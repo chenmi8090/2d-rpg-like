@@ -45,6 +45,7 @@ var _target_acquired := false
 var _drops_emitted := false
 var _defeated_emitted := false
 var _death_pending := false
+var _death_audio_requested := false
 var _lethal_source: Node
 var _edge_drop_committed := false
 var _edge_drop_direction := 0.0
@@ -516,6 +517,7 @@ func _update_attack(delta: float) -> void:
 
 	if should_be_active and not _attack_hitbox_active:
 		_attack_hitbox.activate(maxi(attack.damage, 1), self, _facing_direction, _attack_metadata(attack))
+		_request_attack_release_audio(attack)
 		_attack_hitbox_active = true
 	elif not should_be_active and _attack_hitbox_active:
 		_attack_hitbox.deactivate()
@@ -873,6 +875,8 @@ func receive_hit(amount: int, source: Node, hit_direction: float) -> bool:
 	if _health <= 0:
 		_death_pending = true
 		_lethal_source = source
+	else:
+		_request_hurt_audio()
 	current_state = State.HIT
 	queue_redraw()
 	return true
@@ -905,6 +909,7 @@ func _enter_dead() -> void:
 	if not _defeated_emitted:
 		_defeated_emitted = true
 		defeated.emit(self, _lethal_source)
+	_request_death_audio_deferred()
 	queue_redraw()
 
 
@@ -923,6 +928,7 @@ func reset() -> void:
 	_target_acquired = false
 	_drops_emitted = false
 	_defeated_emitted = false
+	_death_audio_requested = false
 	_death_pending = false
 	_lethal_source = null
 	_clear_edge_drop_commitment()
@@ -938,6 +944,35 @@ func reset() -> void:
 
 func _attack_definition() -> EnemyMeleeAttackDefinition:
 	return definition.melee_attack if definition != null else null
+
+
+func _combat_audio_service() -> CombatAudioService:
+	return get_tree().get_first_node_in_group("combat_audio_service") as CombatAudioService
+
+
+func _request_attack_release_audio(attack: EnemyMeleeAttackDefinition) -> void:
+	var service := _combat_audio_service()
+	if service != null and attack != null:
+		service.request_attack_release(attack.audio_profile, self, global_position)
+
+
+func _request_hurt_audio() -> void:
+	var service := _combat_audio_service()
+	if service != null and definition != null:
+		service.request_hurt(definition.audio_profile, self, global_position, false)
+
+
+func _request_death_audio_deferred() -> void:
+	if _death_audio_requested:
+		return
+	_death_audio_requested = true
+	_request_death_audio.call_deferred()
+
+
+func _request_death_audio() -> void:
+	var service := _combat_audio_service()
+	if service != null and definition != null:
+		service.request_death(definition.audio_profile, self, global_position)
 
 
 func _max_health() -> int:

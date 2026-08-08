@@ -1,6 +1,7 @@
-[gd_resource type="Resource" script_class="EnemyMeleeAttackDefinition" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="EnemyMeleeAttackDefinition" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/enemies/enemy_melee_attack_definition.gd" id="1_attack"]
+[ext_resource type="Resource" path="res://resources/audio/combat/attacks/patrol_grunt_attack_audio.tres" id="2_audio"]
 
 [resource]
 script = ExtResource("1_attack")
@@ -13,3 +14,4 @@ active_time = 0.12
 recovery_time = 0.28
 cooldown_time = 1.2
 engage_range = 58.0
+audio_profile = ExtResource("2_audio")

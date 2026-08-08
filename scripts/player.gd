@@ -77,6 +77,7 @@ const PLAYER_ATTACK_PROJECTILE_SCENE := preload("res://scenes/combat/player_atta
 @export var progression_definition: PlayerProgressionDefinition
 @export var profession_definition: ProfessionDefinition
 @export_category("Health")
+@export var actor_audio_profile: ActorAudioProfile
 @export var hit_stun_time := 0.25
 @export var invulnerability_time := 0.8
 @export var damage_knockback_speed := 240.0
@@ -121,6 +122,7 @@ var _pre_hit_state := State.IDLE
 var _pre_hit_velocity := Vector2.ZERO
 var _pre_hit_on_floor := true
 var _death_respawn_timer := 0.0
+var _death_audio_requested := false
 var _spawn_position := Vector2.ZERO
 var _stardust_fragments := 0
 var _stats := PlayerStats.new()
@@ -217,6 +219,7 @@ func receive_hit(amount: int, _source: Node, hit_direction: float, metadata: Dic
 	if _health <= 0:
 		_enter_dead()
 		return true
+	_request_hurt_audio(reaction)
 	_invulnerability_timer = invulnerability_time
 	_apply_hit_reaction(reaction, hit_direction, metadata)
 	_set_state(State.HIT)
@@ -338,6 +341,7 @@ func _enter_dead() -> void:
 	current_state = State.DEAD
 	velocity = Vector2.ZERO
 	_death_respawn_timer = death_respawn_delay
+	_request_death_audio_deferred()
 	_hurtbox.enabled = false
 	_hurtbox_collision.set_deferred("disabled", true)
 	_visual.modulate = Color(0.45, 0.45, 0.45, 1.0)
@@ -492,6 +496,7 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	_invulnerability_timer = 0.0
 	_clear_hit_reaction_observability()
 	_death_respawn_timer = 0.0
+	_death_audio_requested = false
 	_visual.clear_hurt_feedback()
 	_hurtbox.enabled = true
 	_hurtbox_collision.set_deferred("disabled", false)
@@ -891,11 +896,13 @@ func _update_attack(delta: float) -> void:
 		var should_be_active := _attack_elapsed >= _current_attack_profile.hit_start and _attack_elapsed < _current_attack_profile.hit_end
 		if should_be_active and not _attack_hitbox_active:
 			_attack_hitbox.activate(_current_attack_damage, self, _attack_direction, _current_attack_metadata())
+			_request_attack_release_audio(_current_attack_profile)
 			_attack_hitbox_active = true
 		elif not should_be_active and _attack_hitbox_active:
 			_attack_hitbox.deactivate()
 			_attack_hitbox_active = false
 	elif not _current_attack_projectile_spawned and _attack_elapsed >= _current_attack_profile.hit_start:
+		_request_attack_release_audio(_current_attack_profile)
 		_spawn_attack_projectile(_current_attack_profile)
 		_current_attack_projectile_spawned = true
 
@@ -979,11 +986,61 @@ func _apply_attack_hit_feedback(profile: PlayerBasicAttackProfile) -> void:
 	_visual.show_attack_hit_feedback(profile.hit_feedback_time, profile.hit_feedback_intensity)
 
 
+func _combat_audio_service() -> CombatAudioService:
+	return get_tree().get_first_node_in_group("combat_audio_service") as CombatAudioService
+
+
+func _request_attack_release_audio(profile: PlayerBasicAttackProfile) -> void:
+	var service := _combat_audio_service()
+	if service != null and profile != null:
+		service.request_attack_release(profile.audio_profile, self, global_position)
+
+
+func _request_attack_impact_audio(profile: PlayerBasicAttackProfile, is_critical: bool) -> void:
+	var service := _combat_audio_service()
+	if service != null and profile != null:
+		service.request_attack_impact(profile.audio_profile, self, global_position, is_critical)
+
+
+func _request_projectile_impact_audio(profile_id: StringName, source: Node) -> void:
+	var profile := _profile_for_id(profile_id)
+	var audio_profile := profile.audio_profile if profile != null else null
+	var audio_owner: Node = self
+	if source != null and source.has_method("get_audio_profile"):
+		var source_audio_profile := source.get_audio_profile() as CombatAttackAudioProfile
+		if source_audio_profile != null:
+			audio_profile = source_audio_profile
+			audio_owner = source
+	var service := _combat_audio_service()
+	if service != null:
+		service.request_attack_impact(audio_profile, audio_owner, global_position, false)
+
+
+func _request_hurt_audio(reaction: HitReaction) -> void:
+	var service := _combat_audio_service()
+	if service != null:
+		service.request_hurt(actor_audio_profile, self, global_position, reaction == HitReaction.HEAVY)
+
+
+func _request_death_audio_deferred() -> void:
+	if _death_audio_requested:
+		return
+	_death_audio_requested = true
+	_request_death_audio.call_deferred()
+
+
+func _request_death_audio() -> void:
+	var service := _combat_audio_service()
+	if service != null:
+		service.request_death(actor_audio_profile, self, global_position)
+
+
 func _on_attack_hit_confirmed(_hurtbox: Hurtbox, _damage: int, source: Node, _hit_direction: float) -> void:
 	if source != self or current_state != State.ATTACK or _current_attack_profile == null:
 		return
 	_current_attack_hit_confirmed = true
 	_apply_attack_hit_feedback(_current_attack_profile)
+	_request_attack_impact_audio(_current_attack_profile, _current_attack_critical)
 	attack_hit_confirmed.emit(_current_attack_type, _current_attack_profile.id)
 
 
@@ -996,12 +1053,20 @@ func _on_projectile_hit_confirmed(
 	profile_id: StringName
 ) -> void:
 	if source != self:
-		return
+		var source_owner: Node = null
+		if source != null and source.has_method("get_source"):
+			source_owner = source.get_source() as Node
+		if source_owner != self and source != null and source.has_method("get_credit_owner"):
+			source_owner = source.get_credit_owner() as Node
+		if source_owner != self:
+			return
 	if current_state == State.ATTACK and _current_attack_profile != null and _current_attack_profile.id == profile_id:
 		_current_attack_hit_confirmed = true
 		_apply_attack_hit_feedback(_current_attack_profile)
+		_request_attack_impact_audio(_current_attack_profile, _current_attack_critical)
 	else:
 		_apply_attack_hit_feedback(_profile_for_id(profile_id))
+		_request_projectile_impact_audio(profile_id, source)
 	attack_hit_confirmed.emit(attack_type, profile_id)
 
 
@@ -1251,6 +1316,7 @@ func respawn(reason: RespawnReason = RespawnReason.DEATH) -> void:
 	_invulnerability_timer = 0.0
 	_clear_hit_reaction_observability()
 	_death_respawn_timer = 0.0
+	_death_audio_requested = false
 	_visual.clear_hurt_feedback()
 	_hurtbox.enabled = true
 	_hurtbox_collision.set_deferred("disabled", false)

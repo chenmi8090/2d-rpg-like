@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="AudioCueDefinition" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/audio_cue_definition.gd" id="1_cue"]
+[ext_resource type="AudioStream" path="res://assets/audio/combat/generated/sword_light_release.wav" id="2_stream"]
+
+[resource]
+script = ExtResource("1_cue")
+cue_id = &"sword_light_release"
+streams = Array[AudioStream]([ExtResource("2_stream")])
+volume_db = -2.0
+base_pitch = 1.0
+pitch_variance = 0.035
+cooldown_time = 0.04
+max_concurrent_global = 6
+max_concurrent_per_owner = 1

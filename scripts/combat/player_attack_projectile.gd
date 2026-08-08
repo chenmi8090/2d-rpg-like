@@ -14,6 +14,7 @@ var _active := false
 var _color := Color.WHITE
 var _visual_size := Vector2(26.0, 14.0)
 var _metadata: Dictionary = {}
+var _audio_profile: CombatAttackAudioProfile
 var _hit_hurtboxes: Array[Hurtbox] = []
 
 @onready var _collision: CollisionShape2D = $CollisionShape2D
@@ -33,6 +34,7 @@ func initialize(profile: PlayerBasicAttackProfile, damage: int, source: Node, di
 	_max_distance = maxf(profile.projectile_max_distance, 1.0)
 	_visual_size = profile.projectile_size
 	_color = profile.color
+	_audio_profile = profile.audio_profile
 	_metadata = metadata.duplicate(true)
 	if _collision.shape is RectangleShape2D:
 		_collision.shape = _collision.shape.duplicate()
@@ -66,7 +68,7 @@ func _try_hit(area: Area2D) -> void:
 		return
 	_hit_hurtboxes.append(hurtbox)
 	if hurtbox.receive_hit(_damage, _source, _direction, _metadata):
-		hit_confirmed.emit(hurtbox, _damage, _source, _direction)
+		hit_confirmed.emit(hurtbox, _damage, self, _direction)
 		deactivate()
 
 
@@ -80,6 +82,10 @@ func get_credit_owner() -> Node:
 	if _source != null and is_instance_valid(_source) and _source.has_method("get_credit_owner"):
 		return _source.get_credit_owner() as Node
 	return null
+
+
+func get_audio_profile() -> CombatAttackAudioProfile:
+	return _audio_profile
 
 
 func deactivate() -> void:

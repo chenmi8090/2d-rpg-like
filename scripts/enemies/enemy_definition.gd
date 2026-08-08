@@ -64,6 +64,7 @@ extends Resource
 
 @export_category("Combat")
 @export var melee_attack: EnemyMeleeAttackDefinition
+@export var audio_profile: ActorAudioProfile
 
 @export_category("Drops")
 @export var drop_rules: Array[EnemyDropRule] = []

@@ -12,3 +12,5 @@ const DEFAULT_ATTACK_ID := &"enemy_melee"
 @export_range(0.0, 5.0, 0.01) var recovery_time := 0.28
 @export_range(0.0, 10.0, 0.01) var cooldown_time := 1.2
 @export_range(1.0, 500.0, 1.0) var engage_range := 58.0
+@export_category("Audio")
+@export var audio_profile: CombatAttackAudioProfile

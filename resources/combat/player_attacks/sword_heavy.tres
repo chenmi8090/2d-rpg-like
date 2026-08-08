@@ -1,6 +1,7 @@
-[gd_resource type="Resource" script_class="PlayerBasicAttackProfile" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="PlayerBasicAttackProfile" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/combat/player_basic_attack_profile.gd" id="1_profile"]
+[ext_resource type="Resource" path="res://resources/audio/combat/attacks/sword_heavy_audio.tres" id="2_audio"]
 
 [resource]
 script = ExtResource("1_profile")
@@ -21,4 +22,5 @@ melee_hitbox_size = Vector2(76, 36)
 visual_key = &"sword"
 color = Color(0.95, 0.72, 0.35, 1)
 hit_feedback_time = 0.12
-hit_feedback_intensity = 1.25
+hit_feedback_intensity = 1.2
+audio_profile = ExtResource("2_audio")5

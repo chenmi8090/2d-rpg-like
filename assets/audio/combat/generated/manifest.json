@@ -1,0 +1,254 @@
+{
+  "cues": [
+    {
+      "duration_seconds": 0.18,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 7938,
+      "name": "sword_light_release",
+      "path": "assets/audio/combat/generated/sword_light_release.wav",
+      "sha256": "324faa832a3dab2ea2f6eb60e32aa4e77e000c321d69f0b85b53504510bbe369"
+    },
+    {
+      "duration_seconds": 0.15,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 6615,
+      "name": "sword_light_impact",
+      "path": "assets/audio/combat/generated/sword_light_impact.wav",
+      "sha256": "66b6fcc1861498bedd34a0a256aa2ab770cb0a3049878be609c415f9e7397ca1"
+    },
+    {
+      "duration_seconds": 0.28,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 12348,
+      "name": "sword_heavy_release",
+      "path": "assets/audio/combat/generated/sword_heavy_release.wav",
+      "sha256": "986673311f8580249e019a9879b686603a1e0215cc809cb5bfc4ef64bca3a1d9"
+    },
+    {
+      "duration_seconds": 0.24,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 10584,
+      "name": "sword_heavy_impact",
+      "path": "assets/audio/combat/generated/sword_heavy_impact.wav",
+      "sha256": "dbfaeaf910ec1e1a9a95b496f188c4f10617252e5ef45423d6ba8970911e87f5"
+    },
+    {
+      "duration_seconds": 0.17,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 7497,
+      "name": "staff_light_release",
+      "path": "assets/audio/combat/generated/staff_light_release.wav",
+      "sha256": "c023112305f924fb4402eb973c457a04c533765d11ece56f56930f503062f6fe"
+    },
+    {
+      "duration_seconds": 0.26,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 11466,
+      "name": "staff_heavy_release",
+      "path": "assets/audio/combat/generated/staff_heavy_release.wav",
+      "sha256": "f454e1b66cb7e0f796bca31f3d446d9f528005198ffba434fe8418aab754e3fe"
+    },
+    {
+      "duration_seconds": 0.36,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 15876,
+      "name": "magic_impact",
+      "path": "assets/audio/combat/generated/magic_impact.wav",
+      "sha256": "34579ddfc4aefed8e4e0b2b8b40b9712acc1030ca10ab2044f66262db8b40320"
+    },
+    {
+      "duration_seconds": 0.3,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 13230,
+      "name": "player_normal_hurt",
+      "path": "assets/audio/combat/generated/player_normal_hurt.wav",
+      "sha256": "9ed3bc75c0c9d56237d8c7a7f06176db7e5fbd814c3cc82a58260de56978509b"
+    },
+    {
+      "duration_seconds": 0.44,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 19404,
+      "name": "player_heavy_hurt",
+      "path": "assets/audio/combat/generated/player_heavy_hurt.wav",
+      "sha256": "27b0a2b08ce98815eb6999b9edf418e3b7f60cfa07539189edcd2863fcf537f1"
+    },
+    {
+      "duration_seconds": 0.76,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 33516,
+      "name": "player_death",
+      "path": "assets/audio/combat/generated/player_death.wav",
+      "sha256": "12a14e8195ae480fba676b0546dc1e473c43b1c2350a682502d5b05dbf614cf1"
+    },
+    {
+      "duration_seconds": 0.23,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 10143,
+      "name": "grunt_release",
+      "path": "assets/audio/combat/generated/grunt_release.wav",
+      "sha256": "80a14db0586c6cf06aee0e435714ff781ca8cf2d2266062d3937f2e80abe1285"
+    },
+    {
+      "duration_seconds": 0.33,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 14553,
+      "name": "grunt_hurt",
+      "path": "assets/audio/combat/generated/grunt_hurt.wav",
+      "sha256": "7bee7812fbacb3db46eb7d25d0862d33af1869901a6b8c9630c1984dc420fdc8"
+    },
+    {
+      "duration_seconds": 0.67,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 29547,
+      "name": "grunt_death",
+      "path": "assets/audio/combat/generated/grunt_death.wav",
+      "sha256": "9b26799cb91a286c97a7b2c16f6377de35255dca65e76085b72514cb485c1730"
+    },
+    {
+      "duration_seconds": 0.31,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 13671,
+      "name": "heavy_release",
+      "path": "assets/audio/combat/generated/heavy_release.wav",
+      "sha256": "d1d74e5626ebcd18a249ae5040fe3cf36c5a1518b18835325f518006952557a0"
+    },
+    {
+      "duration_seconds": 0.48,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 21168,
+      "name": "heavy_hurt",
+      "path": "assets/audio/combat/generated/heavy_hurt.wav",
+      "sha256": "74c9b4e732ea29bedb2ddf575355ceceeaa96868e28995cca0e2afa04012d3e0"
+    },
+    {
+      "duration_seconds": 0.9,
+      "format": {
+        "bits_per_sample": 16,
+        "byte_order": "little_endian",
+        "channels": 1,
+        "container": "WAV",
+        "encoding": "PCM_SIGNED",
+        "sample_rate_hz": 44100
+      },
+      "frames": 39690,
+      "name": "heavy_death",
+      "path": "assets/audio/combat/generated/heavy_death.wav",
+      "sha256": "77f5d8ea1b83e4d9e44b60777bc71efb6467871b06913035ccd92d195bdf1257"
+    }
+  ],
+  "determinism": "xorshift32 explicit seeds, no external assets, standard library only",
+  "format": {
+    "bits_per_sample": 16,
+    "channels": 1,
+    "container": "WAV",
+    "encoding": "PCM_SIGNED",
+    "sample_rate_hz": 44100
+  },
+  "generator": "tools/generate_combat_sfx.py",
+  "version": 1
+}

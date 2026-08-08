@@ -39,6 +39,8 @@ enum DamageStat {
 @export_category("Feedback")
 @export_range(0.0, 1.0, 0.01) var hit_feedback_time := 0.10
 @export_range(0.0, 2.0, 0.01) var hit_feedback_intensity := 1.0
+@export_category("Audio")
+@export var audio_profile: CombatAttackAudioProfile
 
 
 func is_valid() -> bool:

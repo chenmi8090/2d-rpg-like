@@ -1,6 +1,7 @@
-[gd_resource type="Resource" script_class="PlayerBasicAttackProfile" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="PlayerBasicAttackProfile" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/combat/player_basic_attack_profile.gd" id="1_profile"]
+[ext_resource type="Resource" path="res://resources/audio/combat/attacks/sword_light_audio.tres" id="2_audio"]
 
 [resource]
 script = ExtResource("1_profile")
@@ -22,3 +23,4 @@ visual_key = &"sword"
 color = Color(0.78, 0.9, 1, 1)
 hit_feedback_time = 0.08
 hit_feedback_intensity = 0.8
+audio_profile = ExtResource("2_audio")

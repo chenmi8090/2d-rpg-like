@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="CombatAttackAudioProfile" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/combat_attack_audio_profile.gd" id="1_profile"]
+[ext_resource type="Resource" path="res://resources/audio/combat/cues/sword_light_release.tres" id="2_release"]
+[ext_resource type="Resource" path="res://resources/audio/combat/cues/sword_light_impact.tres" id="3_impact"]
+[ext_resource type="Resource" path="res://resources/audio/combat/cues/sword_heavy_impact.tres" id="4_critical"]
+
+[resource]
+script = ExtResource("1_profile")
+release_cue = ExtResource("2_release")
+impact_cue = ExtResource("3_impact")
+critical_impact_cue = ExtResource("4_critical")

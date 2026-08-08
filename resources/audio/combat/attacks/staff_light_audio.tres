@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="CombatAttackAudioProfile" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/combat_attack_audio_profile.gd" id="1_profile"]
+[ext_resource type="Resource" path="res://resources/audio/combat/cues/staff_light_release.tres" id="2_release"]
+[ext_resource type="Resource" path="res://resources/audio/combat/cues/magic_impact.tres" id="3_impact"]
+
+[resource]
+script = ExtResource("1_profile")
+release_cue = ExtResource("2_release")
+impact_cue = ExtResource("3_impact")
+critical_impact_cue = ExtResource("3_impact")

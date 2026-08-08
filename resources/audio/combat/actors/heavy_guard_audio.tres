@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ActorAudioProfile" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/actor_audio_profile.gd" id="1_profile"]
+[ext_resource type="Resource" path="res://resources/audio/combat/cues/heavy_hurt.tres" id="2_normal"]
+[ext_resource type="Resource" path="res://resources/audio/combat/cues/heavy_hurt.tres" id="3_heavy"]
+[ext_resource type="Resource" path="res://resources/audio/combat/cues/heavy_death.tres" id="4_death"]
+
+[resource]
+script = ExtResource("1_profile")
+normal_hurt_cue = ExtResource("2_normal")
+heavy_hurt_cue = ExtResource("3_heavy")
+death_cue = ExtResource("4_death")

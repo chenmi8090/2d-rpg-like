@@ -2,6 +2,7 @@ extends Node2D
 
 const MATERIAL_PICKUP_SCENE := preload("res://scenes/items/material_pickup.tscn")
 const EQUIPMENT_PICKUP_SCENE := preload("res://scenes/items/equipment_pickup.tscn")
+const COMBAT_AUDIO_SERVICE_SCRIPT := preload("res://scripts/combat/combat_audio_service.gd")
 const PLATFORM_COLOR := Color("42626b")
 const PLATFORM_TOP_COLOR := Color("91b86d")
 const MAP_LEFT := -370.0
@@ -46,9 +47,11 @@ var _equipment_rows: Dictionary = {}
 var _hovered_equipment_slot: StringName = &""
 var _hovered_backpack_item: EquipmentDefinition
 var _level_up_tween: Tween
+var _combat_audio_service: CombatAudioService
 
 
 func _ready() -> void:
+	_ensure_combat_audio_service()
 	_build_course()
 	_register_platform_navigation()
 	_rng.randomize()
@@ -93,6 +96,19 @@ func get_area_id() -> StringName:
 
 func get_safe_spawn_position(spawn_id: StringName) -> Vector2:
 	return SAFE_SPAWN_POSITION if spawn_id == SAFE_SPAWN_ID else Vector2.INF
+
+
+func _ensure_combat_audio_service() -> void:
+	if _combat_audio_service != null and is_instance_valid(_combat_audio_service):
+		return
+	_combat_audio_service = get_node_or_null("CombatAudioService") as CombatAudioService
+	if _combat_audio_service == null:
+		_combat_audio_service = COMBAT_AUDIO_SERVICE_SCRIPT.new() as CombatAudioService
+		_combat_audio_service.name = "CombatAudioService"
+		add_child(_combat_audio_service)
+	if not _combat_audio_service.is_in_group("combat_audio_service"):
+		_combat_audio_service.add_to_group("combat_audio_service")
+	_combat_audio_service.cleanup_owner(_player)
 
 
 func is_combat_active() -> bool:
@@ -145,6 +161,9 @@ func _connect_enemy_drop_sources() -> void:
 func _connect_enemy_drop_source(enemy: Node) -> void:
 	if enemy == null or not is_instance_valid(enemy) or not enemy.is_inside_tree():
 		return
+	_ensure_combat_audio_service()
+	if _combat_audio_service != null:
+		_combat_audio_service.cleanup_owner(enemy)
 	if _connected_enemies.has(enemy) or not enemy.has_signal("drop_requested"):
 		return
 	enemy.connect("drop_requested", _on_enemy_drop_requested)
@@ -156,6 +175,8 @@ func _connect_enemy_drop_source(enemy: Node) -> void:
 
 func _on_enemy_tree_exited(enemy: Node) -> void:
 	_connected_enemies.erase(enemy)
+	if _combat_audio_service != null:
+		_combat_audio_service.cleanup_owner(enemy)
 
 
 func _on_node_added(node: Node) -> void:

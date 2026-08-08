@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="AudioCueDefinition" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/audio_cue_definition.gd" id="1_cue"]
+[ext_resource type="AudioStream" path="res://assets/audio/combat/generated/heavy_hurt.wav" id="2_stream"]
+
+[resource]
+script = ExtResource("1_cue")
+cue_id = &"heavy_hurt"
+streams = Array[AudioStream]([ExtResource("2_stream")])
+volume_db = -2.5
+base_pitch = 0.92
+pitch_variance = 0.025
+cooldown_time = 0.1
+max_concurrent_global = 4
+max_concurrent_per_owner = 1
