@@ -11,6 +11,8 @@ const EXPERIENCE_BAR_WIDTH := 180.0
 const AREA_ID := &"test_level"
 const SAFE_SPAWN_ID := &"start"
 const SAFE_SPAWN_POSITION := Vector2(80.0, 550.0)
+const BACKPACK_COLUMNS := 10
+const SELECTED_COLOR := Color("ffe17a")
 
 @onready var _player: Player = $Player
 @onready var _drops: Node2D = $Drops
@@ -24,11 +26,14 @@ const SAFE_SPAWN_POSITION := Vector2(80.0, 550.0)
 @onready var _experience_text: Label = $Interface/HealthPanel/ExpText
 @onready var _level_up_text: Label = $Interface/LevelUpText
 @onready var _backpack_panel: Control = $Interface/BackpackPanel
+@onready var _backpack_scroll: ScrollContainer = $Interface/BackpackPanel/ItemScroll
 @onready var _backpack_list: GridContainer = $Interface/BackpackPanel/ItemScroll/ItemList
 @onready var _backpack_empty_text: Label = $Interface/BackpackPanel/EmptyText
 @onready var _backpack_detail_panel: Control = $Interface/BackpackPanel/DetailPanel
 @onready var _backpack_detail_text: Label = $Interface/BackpackPanel/DetailPanel/DetailText
 @onready var _backpack_feedback_text: Label = $Interface/BackpackPanel/FeedbackText
+@onready var _discard_confirmation: Control = $Interface/BackpackPanel/DiscardConfirmation
+@onready var _discard_confirmation_text: Label = $Interface/BackpackPanel/DiscardConfirmation/Panel/ItemText
 @onready var _attributes_panel: Control = $Interface/AttributesPanel
 @onready var _attributes_text: Label = $Interface/AttributesPanel/StatsText
 @onready var _profession_text: Label = $Interface/AttributesPanel/ProfessionText
@@ -44,7 +49,14 @@ var _rng := RandomNumberGenerator.new()
 var _connected_enemies: Dictionary = {}
 var _equipment_rows: Dictionary = {}
 var _hovered_equipment_slot: StringName = &""
+var _selected_equipment_slot: StringName = &""
 var _hovered_backpack_instance_id := ""
+var _selected_backpack_instance_id := ""
+var _selected_backpack_index_hint := -1
+var _sorted_backpack_items: Array[EquipmentInstance] = []
+var _backpack_buttons_by_id: Dictionary = {}
+var _pending_discard_instance_id := ""
+var _pending_discard_index := -1
 var _level_up_tween: Tween
 
 
@@ -80,6 +92,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if is_instance_valid(_player):
+		_player.set_gameplay_input_blocked(false)
 	if GameSession.save_status_changed.is_connected(_on_save_status_changed):
 		GameSession.save_status_changed.disconnect(_on_save_status_changed)
 	if GameSession.return_countdown_changed.is_connected(_on_return_countdown_changed):
@@ -272,38 +286,95 @@ func _show_level_up(level: int, _levels_gained: int) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
-		if event is InputEventKey and event.echo:
-			return
-		_set_attributes_panel_visible(false)
-		_set_backpack_panel_visible(false)
+	if not event.is_pressed():
+		return
+	var echoed: bool = event is InputEventKey and event.echo
+	if _discard_confirmation.visible:
+		if event.is_action_pressed("ui_cancel") and not echoed:
+			_cancel_discard()
+		elif event.is_action_pressed("light_attack") and not echoed:
+			_confirm_discard()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("toggle_attributes"):
-		if event is InputEventKey and event.echo:
-			return
-		_set_attributes_panel_visible(not _attributes_panel.visible)
+		return
+	if _backpack_panel.visible:
+		if event.is_action_pressed("ui_cancel") or event.is_action_pressed("toggle_backpack"):
+			if not echoed:
+				_set_backpack_panel_visible(false)
+		elif event.is_action_pressed("toggle_attributes"):
+			if not echoed:
+				_set_attributes_panel_visible(true)
+		elif event.is_action_pressed("light_attack"):
+			if not echoed:
+				_equip_selected_backpack_item()
+		elif event.is_action_pressed("heavy_attack"):
+			if not echoed:
+				_open_discard_confirmation()
+		elif event.is_action_pressed("move_left"):
+			_move_backpack_selection(Vector2i.LEFT)
+		elif event.is_action_pressed("move_right"):
+			_move_backpack_selection(Vector2i.RIGHT)
+		elif event.is_action_pressed("interact_up"):
+			_move_backpack_selection(Vector2i.UP)
+		elif event.is_action_pressed("interact_down"):
+			_move_backpack_selection(Vector2i.DOWN)
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("toggle_backpack"):
-		if event is InputEventKey and event.echo:
-			return
-		_set_backpack_panel_visible(not _backpack_panel.visible)
+		return
+	if _attributes_panel.visible:
+		if event.is_action_pressed("ui_cancel") or event.is_action_pressed("toggle_attributes"):
+			if not echoed:
+				_set_attributes_panel_visible(false)
+		elif event.is_action_pressed("toggle_backpack"):
+			if not echoed:
+				_set_backpack_panel_visible(true)
+		elif event.is_action_pressed("light_attack"):
+			if not echoed:
+				_unequip_selected_slot()
+		elif event.is_action_pressed("interact_up"):
+			_move_equipment_selection(-1)
+		elif event.is_action_pressed("interact_down"):
+			_move_equipment_selection(1)
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("toggle_attributes") and not echoed:
+		_set_attributes_panel_visible(true)
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("toggle_backpack") and not echoed:
+		_set_backpack_panel_visible(true)
 		get_viewport().set_input_as_handled()
 
 
 func _set_backpack_panel_visible(visible: bool) -> void:
-	_backpack_panel.visible = visible
-	_hide_backpack_detail()
-	_backpack_feedback_text.text = ""
 	if visible:
+		_attributes_panel.visible = false
+		_hovered_equipment_slot = &""
+		_backpack_panel.visible = true
+		_backpack_feedback_text.text = ""
 		_update_backpack_panel()
+	else:
+		_cancel_discard()
+		_backpack_panel.visible = false
+		_hovered_backpack_instance_id = ""
+	_update_gameplay_input_block()
 
 
 func _set_attributes_panel_visible(visible: bool) -> void:
-	_attributes_panel.visible = visible
-	_hide_equipment_detail()
 	if visible:
+		_cancel_discard()
+		_backpack_panel.visible = false
+		_hovered_backpack_instance_id = ""
+		_attributes_panel.visible = true
+		if not EquipmentSlot.is_valid(_selected_equipment_slot):
+			_selected_equipment_slot = EquipmentSlot.ALL[0]
 		_update_attributes_panel()
 		_update_equipment_panel()
+	else:
+		_attributes_panel.visible = false
+		_hovered_equipment_slot = &""
+	_update_gameplay_input_block()
+
+
+func _update_gameplay_input_block() -> void:
+	_player.set_gameplay_input_blocked(_backpack_panel.visible or _attributes_panel.visible)
 
 
 func _setup_equipment_rows() -> void:
@@ -323,6 +394,7 @@ func _setup_equipment_rows() -> void:
 		row.set_meta(&"equipment_slot", slot)
 		row.mouse_entered.connect(_on_equipment_row_entered.bind(slot))
 		row.mouse_exited.connect(_on_equipment_row_exited.bind(slot))
+		row.pressed.connect(_on_equipment_row_pressed.bind(slot))
 
 
 func _update_attributes_panel() -> void:
@@ -351,9 +423,9 @@ func _update_equipment_panel() -> void:
 		var item := _player.get_equipped_item(slot)
 		var item_name := "[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()] if item != null else "未装备"
 		row.text = "%s：%s" % [EquipmentSlot.display_name(slot), item_name]
-		row.disabled = item == null
-	if _hovered_equipment_slot != &"":
-		_show_equipment_detail(_hovered_equipment_slot)
+		row.disabled = false
+		row.add_theme_color_override("font_color", SELECTED_COLOR if slot == _selected_equipment_slot else Color.WHITE)
+	_show_active_equipment_detail()
 
 
 func _on_equipment_row_entered(slot: StringName) -> void:
@@ -363,20 +435,56 @@ func _on_equipment_row_entered(slot: StringName) -> void:
 
 func _on_equipment_row_exited(slot: StringName) -> void:
 	if _hovered_equipment_slot == slot:
+		_hovered_equipment_slot = &""
+		_show_active_equipment_detail()
+
+
+func _on_equipment_row_pressed(slot: StringName) -> void:
+	_selected_equipment_slot = slot
+	if _player.get_equipped_item(slot) != null:
+		_unequip_selected_slot()
+	else:
+		_update_equipment_panel()
+
+
+func _move_equipment_selection(direction: int) -> void:
+	var index := EquipmentSlot.ALL.find(_selected_equipment_slot)
+	if index < 0:
+		index = 0
+	else:
+		index = clampi(index + direction, 0, EquipmentSlot.ALL.size() - 1)
+	_selected_equipment_slot = EquipmentSlot.ALL[index]
+	_update_equipment_panel()
+
+
+func _unequip_selected_slot() -> void:
+	if not EquipmentSlot.is_valid(_selected_equipment_slot):
+		return
+	var item := _player.get_equipped_item(_selected_equipment_slot)
+	if item == null:
+		return
+	if _player.unequip_to_inventory(_selected_equipment_slot):
+		_backpack_feedback_text.text = "已卸下：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
+
+
+func _show_active_equipment_detail() -> void:
+	var slot := _hovered_equipment_slot if _hovered_equipment_slot != &"" else _selected_equipment_slot
+	if EquipmentSlot.is_valid(slot):
+		_show_equipment_detail(slot)
+	else:
 		_hide_equipment_detail()
 
 
 func _show_equipment_detail(slot: StringName) -> void:
 	var item := _player.get_equipped_item(slot)
 	if item == null:
-		_hide_equipment_detail()
-		return
-	_equipment_detail_text.text = EquipmentTextFormatter.format_equipment_detail(item)
+		_equipment_detail_text.text = "%s\n\n未装备" % EquipmentSlot.display_name(slot)
+	else:
+		_equipment_detail_text.text = EquipmentTextFormatter.format_equipment_detail(item)
 	_equipment_detail_panel.visible = true
 
 
 func _hide_equipment_detail() -> void:
-	_hovered_equipment_slot = &""
 	_equipment_detail_panel.visible = false
 	_equipment_detail_text.text = ""
 
@@ -489,34 +597,36 @@ func _weapon_type_display_name(weapon_type: StringName) -> String:
 func _on_player_equipment_changed() -> void:
 	_update_equipment_panel()
 	_update_attributes_panel()
-	_update_backpack_panel()
 
 
 func _update_backpack_panel() -> void:
+	var previous_id := _selected_backpack_instance_id
+	var previous_index := _selected_backpack_index_hint
 	for child in _backpack_list.get_children():
+		_backpack_list.remove_child(child)
 		child.queue_free()
-	var items := _player.get_equipment_inventory()
-	items.sort_custom(func(first: EquipmentInstance, second: EquipmentInstance) -> bool:
-		var first_rank := EquipmentQuality.sort_rank(first.quality)
-		var second_rank := EquipmentQuality.sort_rank(second.quality)
-		if first_rank != second_rank:
-			return first_rank > second_rank
-		var first_slot := EquipmentSlot.ALL.find(first.get_slot())
-		var second_slot := EquipmentSlot.ALL.find(second.get_slot())
-		if first_slot != second_slot:
-			return first_slot < second_slot
-		if first.get_display_name() != second.get_display_name():
-			return first.get_display_name() < second.get_display_name()
-		return first.instance_id < second.instance_id
-	)
-	_backpack_empty_text.visible = items.is_empty()
-	for item in items:
+	_backpack_buttons_by_id.clear()
+	_sorted_backpack_items = _player.get_equipment_inventory()
+	_sorted_backpack_items.sort_custom(_backpack_item_before)
+	_backpack_empty_text.visible = _sorted_backpack_items.is_empty()
+	if _sorted_backpack_items.is_empty():
+		_selected_backpack_instance_id = ""
+		_selected_backpack_index_hint = -1
+	else:
+		var restored_index := _find_backpack_index(previous_id)
+		if restored_index < 0:
+			restored_index = clampi(previous_index, 0, _sorted_backpack_items.size() - 1) if previous_index >= 0 else 0
+		_selected_backpack_index_hint = restored_index
+		_selected_backpack_instance_id = _sorted_backpack_items[restored_index].instance_id
+	for item in _sorted_backpack_items:
 		var row := Button.new()
 		row.custom_minimum_size = Vector2(50.0, 50.0)
 		row.focus_mode = Control.FOCUS_NONE
 		row.text = _format_backpack_slot_text(item)
 		row.tooltip_text = "[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
 		row.add_theme_color_override("font_color", EquipmentQuality.color(item.quality))
+		row.add_theme_color_override("font_outline_color", SELECTED_COLOR)
+		row.add_theme_constant_override("outline_size", 3 if item.instance_id == _selected_backpack_instance_id else 0)
 		row.add_theme_font_size_override("font_size", 11)
 		row.alignment = HORIZONTAL_ALIGNMENT_CENTER
 		row.set_meta(&"equipment_instance_id", item.instance_id)
@@ -524,10 +634,78 @@ func _update_backpack_panel() -> void:
 		row.mouse_exited.connect(_on_backpack_item_exited.bind(item.instance_id))
 		row.pressed.connect(_on_backpack_item_pressed.bind(item.instance_id))
 		_backpack_list.add_child(row)
-	if not _hovered_backpack_instance_id.is_empty() and _player.get_equipment_instance(_hovered_backpack_instance_id) != null:
-		_show_backpack_detail(_hovered_backpack_instance_id)
-	else:
-		_hide_backpack_detail()
+		_backpack_buttons_by_id[item.instance_id] = row
+	_show_active_backpack_detail()
+	_scroll_selected_backpack_item.call_deferred()
+
+
+func _backpack_item_before(first: EquipmentInstance, second: EquipmentInstance) -> bool:
+	var first_rank := EquipmentQuality.sort_rank(first.quality)
+	var second_rank := EquipmentQuality.sort_rank(second.quality)
+	if first_rank != second_rank:
+		return first_rank > second_rank
+	var first_slot := EquipmentSlot.ALL.find(first.get_slot())
+	var second_slot := EquipmentSlot.ALL.find(second.get_slot())
+	first_slot = EquipmentSlot.ALL.size() if first_slot < 0 else first_slot
+	second_slot = EquipmentSlot.ALL.size() if second_slot < 0 else second_slot
+	if first_slot != second_slot:
+		return first_slot < second_slot
+	if first.get_display_name() != second.get_display_name():
+		return first.get_display_name() < second.get_display_name()
+	return first.instance_id < second.instance_id
+
+
+static func backpack_navigation_index(current: int, count: int, direction: Vector2i, columns := BACKPACK_COLUMNS) -> int:
+	if count <= 0 or current < 0 or current >= count or columns <= 0:
+		return -1
+	if direction == Vector2i.LEFT:
+		return current - 1 if current % columns > 0 else current
+	if direction == Vector2i.RIGHT:
+		return current + 1 if current % columns < columns - 1 and current + 1 < count else current
+	if direction == Vector2i.UP:
+		return current - columns if current >= columns else current
+	if direction == Vector2i.DOWN:
+		var target := current + columns
+		if target < count:
+			return target
+		var last_row_start := ((count - 1) / columns) * columns
+		if current < last_row_start:
+			return count - 1
+	return current
+
+
+func _find_backpack_index(instance_id: String) -> int:
+	if instance_id.is_empty():
+		return -1
+	for index in _sorted_backpack_items.size():
+		if _sorted_backpack_items[index].instance_id == instance_id:
+			return index
+	return -1
+
+
+func _move_backpack_selection(direction: Vector2i) -> void:
+	var current := _find_backpack_index(_selected_backpack_instance_id)
+	var target := backpack_navigation_index(current, _sorted_backpack_items.size(), direction)
+	if target < 0 or target == current:
+		return
+	_selected_backpack_index_hint = target
+	_selected_backpack_instance_id = _sorted_backpack_items[target].instance_id
+	_refresh_backpack_selection()
+
+
+func _refresh_backpack_selection() -> void:
+	for instance_id in _backpack_buttons_by_id:
+		var row := _backpack_buttons_by_id[instance_id] as Button
+		if row != null:
+			row.add_theme_constant_override("outline_size", 3 if instance_id == _selected_backpack_instance_id else 0)
+	_show_active_backpack_detail()
+	_scroll_selected_backpack_item.call_deferred()
+
+
+func _scroll_selected_backpack_item() -> void:
+	var row := _backpack_buttons_by_id.get(_selected_backpack_instance_id) as Control
+	if row != null and is_instance_valid(row):
+		_backpack_scroll.ensure_control_visible(row)
 
 
 func _format_backpack_slot_text(item: EquipmentInstance) -> String:
@@ -543,17 +721,70 @@ func _on_backpack_item_entered(instance_id: String) -> void:
 
 func _on_backpack_item_exited(instance_id: String) -> void:
 	if _hovered_backpack_instance_id == instance_id:
-		_hide_backpack_detail()
+		_hovered_backpack_instance_id = ""
+		_show_active_backpack_detail()
 
 
 func _on_backpack_item_pressed(instance_id: String) -> void:
+	var index := _find_backpack_index(instance_id)
+	if index < 0:
+		return
+	_selected_backpack_instance_id = instance_id
+	_selected_backpack_index_hint = index
+	_refresh_backpack_selection()
+	_equip_selected_backpack_item()
+
+
+func _equip_selected_backpack_item() -> void:
+	var instance_id := _selected_backpack_instance_id
 	var item := _player.get_equipment_instance(instance_id)
-	if item != null and _player.equip_inventory_item(instance_id):
+	if item == null or item not in _player.get_equipment_inventory():
+		return
+	_selected_backpack_index_hint = _find_backpack_index(instance_id)
+	if _player.equip_inventory_item(instance_id):
 		_backpack_feedback_text.text = "已装备：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
+
+
+func _open_discard_confirmation() -> void:
+	var item := _player.get_equipment_instance(_selected_backpack_instance_id)
+	if item == null or item not in _player.get_equipment_inventory():
+		return
+	_pending_discard_instance_id = item.instance_id
+	_pending_discard_index = _find_backpack_index(item.instance_id)
+	_discard_confirmation_text.text = "确定丢弃这件装备？\n\n%s\n\nJ 确认    Esc 取消" % EquipmentTextFormatter.format_equipment_detail(item)
+	_discard_confirmation.visible = true
+
+
+func _cancel_discard() -> void:
+	_pending_discard_instance_id = ""
+	_pending_discard_index = -1
+	if is_instance_valid(_discard_confirmation):
+		_discard_confirmation.visible = false
+
+
+func _confirm_discard() -> void:
+	var instance_id := _pending_discard_instance_id
+	var fallback_index := _pending_discard_index
+	_cancel_discard()
+	var item := _player.get_equipment_instance(instance_id)
+	if item == null or item not in _player.get_equipment_inventory():
+		return
+	_selected_backpack_instance_id = instance_id
+	_selected_backpack_index_hint = fallback_index
+	if _player.discard_inventory_item(instance_id):
+		_backpack_feedback_text.text = "已丢弃：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
 
 
 func _on_equipment_equip_failed(message: String) -> void:
 	_backpack_feedback_text.text = "无法装备：%s" % message
+
+
+func _show_active_backpack_detail() -> void:
+	var instance_id := _hovered_backpack_instance_id if not _hovered_backpack_instance_id.is_empty() else _selected_backpack_instance_id
+	if instance_id.is_empty():
+		_hide_backpack_detail()
+	else:
+		_show_backpack_detail(instance_id)
 
 
 func _show_backpack_detail(instance_id: String) -> void:
@@ -566,7 +797,6 @@ func _show_backpack_detail(instance_id: String) -> void:
 
 
 func _hide_backpack_detail() -> void:
-	_hovered_backpack_instance_id = ""
 	_backpack_detail_panel.visible = false
 	_backpack_detail_text.text = ""
 

@@ -31,7 +31,14 @@ static func format_backpack_comparison(item: EquipmentInstance, preview: Diction
 	lines.append("")
 	lines.append("当前装备：%s" % ("[%s] %s" % [EquipmentQuality.display_name(current.quality), current.get_display_name()] if current != null else "未装备"))
 	if not bool(preview.get("valid", false)):
-		lines.append("无法装备：当前职业无法使用该武器")
+		lines.append(
+			"无法装备：%s"
+			% (
+				"当前职业无法使用该武器"
+				if item.is_weapon()
+				else "当前职业无法装备该物品"
+			)
+		)
 	lines.append("")
 	lines.append("最终属性变化")
 	var before: Dictionary = preview.get("before", {})

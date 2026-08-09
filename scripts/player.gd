@@ -130,6 +130,7 @@ var _equipped_items: Dictionary = {}
 var _equipment_inventory: Array[EquipmentInstance] = []
 var _next_equipment_instance_serial := 1
 var _input_suppression_timer := 0.0
+var _gameplay_input_blocked := false
 var _coyote_timer := 0.0
 var _jump_buffer_timer := 0.0
 var _jump_consumed := false
@@ -545,6 +546,19 @@ func suppress_gameplay_input(duration := -1.0) -> void:
 	_reset_movement_input_state()
 
 
+func set_gameplay_input_blocked(blocked: bool) -> void:
+	if _gameplay_input_blocked == blocked:
+		return
+	_gameplay_input_blocked = blocked
+	_reset_movement_input_state()
+	if not blocked:
+		_input_suppression_timer = 0.0
+
+
+func is_gameplay_input_blocked() -> bool:
+	return _gameplay_input_blocked
+
+
 func _reset_movement_input_state() -> void:
 	_clear_transient_movement_state(true, true)
 
@@ -564,7 +578,7 @@ func _clear_transient_movement_state(clear_horizontal_velocity: bool, restore_on
 
 
 func _input_suppressed() -> bool:
-	return _input_suppression_timer > 0.0
+	return _gameplay_input_blocked or _input_suppression_timer > 0.0
 
 
 func _movement_axis() -> float:
@@ -638,12 +652,24 @@ func _instance_for_equipment_candidate(candidate: Variant) -> EquipmentInstance:
 func unequip_slot(slot: StringName) -> EquipmentInstance:
 	if not EquipmentSlot.is_valid(slot):
 		return null
-	var removed := _equipped_items.get(slot) as EquipmentInstance
+	var removed := _remove_equipped_item(slot)
 	if removed == null:
 		return null
-	_equipped_items.erase(slot)
+	_equipment_inventory.append(removed)
 	_refresh_equipment_modifiers()
 	equipment_changed.emit()
+	equipment_inventory_changed.emit()
+	return removed
+
+
+func unequip_to_inventory(slot: StringName) -> bool:
+	return unequip_slot(slot) != null
+
+
+func _remove_equipped_item(slot: StringName) -> EquipmentInstance:
+	var removed := _equipped_items.get(slot) as EquipmentInstance
+	if removed != null:
+		_equipped_items.erase(slot)
 	return removed
 
 
@@ -677,6 +703,18 @@ func collect_equipment(item: EquipmentInstance) -> bool:
 
 func get_equipment_inventory() -> Array[EquipmentInstance]:
 	return _equipment_inventory.duplicate()
+
+
+func discard_inventory_item(instance_id: String) -> bool:
+	if instance_id.is_empty() or _is_equipped_instance(instance_id):
+		return false
+	for index in _equipment_inventory.size():
+		var item := _equipment_inventory[index]
+		if item != null and item.instance_id == instance_id:
+			_equipment_inventory.remove_at(index)
+			equipment_inventory_changed.emit()
+			return true
+	return false
 
 
 func get_equipment_instance(instance_id: String) -> EquipmentInstance:
