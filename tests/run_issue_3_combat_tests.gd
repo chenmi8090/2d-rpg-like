@@ -62,9 +62,12 @@ func _test_grounded_attack_rules() -> void:
 	await _destroy_world()
 
 	player = await _create_falling_player(Vector2(0.0, -80.0))
+	var started_profiles: Array[StringName] = []
+	player.attack_started.connect(func(_type: int, profile_id: StringName) -> void: started_profiles.append(profile_id))
 	Input.action_press(&"heavy_attack")
 	await _physics_frames(4)
-	_expect(player.current_state != Player.State.ATTACK, "空中不会发动地面重攻击")
+	_expect(player.current_state == Player.State.ATTACK, "下落期间可以发动现有重攻击")
+	_expect(started_profiles == [&"sword_heavy"], "空中重攻击继续使用当前装备的重攻击档案")
 	Input.action_release(&"heavy_attack")
 	await _destroy_world()
 
@@ -261,26 +264,31 @@ func _test_edge_and_landing_rules() -> void:
 	_add_platform(Vector2(0.0, FLOOR_Y), Vector2(80.0, 40.0))
 	var player := _spawn_player(Vector2(10.0, PLAYER_FLOOR_POSITION_Y))
 	await _settle_player(player)
-	var target := _add_target(Vector2(145.0, PLAYER_FLOOR_POSITION_Y - 18.0))
+	player.move_speed = 900.0
+	var ended: Array[bool] = []
+	player.attack_ended.connect(func(_type: int, _profile: StringName, cancelled: bool) -> void: ended.append(cancelled))
 	Input.action_press(&"move_right")
 	Input.action_press(&"heavy_attack")
 	await _wait_until_airborne(player)
 	await _physics_frames(20)
+	_expect(player.current_state == Player.State.ATTACK, "地面攻击离开平台后继续原攻击计时")
+	await _physics_frames(35)
 	Input.action_release(&"move_right")
 	Input.action_release(&"heavy_attack")
-	_expect(player.current_state == Player.State.FALL, "地面攻击离开平台后取消并进入下落")
-	_expect(target.hit_count == 0, "离开平台取消的攻击不会留下延迟伤害判定")
+	_expect(player.current_state == Player.State.FALL, "平台边缘攻击自然结束后进入下落")
+	_expect(ended == [false], "平台边缘不会把正常完成的攻击标记为取消")
 	await _destroy_world()
 
-	player = await _create_falling_player(Vector2(0.0, -80.0))
-	target = _add_target(Vector2(55.0, PLAYER_FLOOR_POSITION_Y - 20.0))
+	player = await _create_falling_player(Vector2(0.0, -45.0))
+	var started: Array[int] = []
+	player.attack_started.connect(func(type: int, _profile: StringName) -> void: started.append(type))
 	Input.action_press(&"light_attack")
 	await _physics_frames(8)
-	_expect(player.current_state != Player.State.ATTACK and target.hit_count == 0, "空中按住攻击不会形成空中攻击")
+	_expect(player.current_state == Player.State.ATTACK and started.size() == 1, "空中按住攻击会发动一次空中攻击")
 	await _wait_until_grounded(player)
-	await _physics_frames(10)
+	await _physics_frames(2)
+	_expect(started.size() == 1, "空中攻击落地不会重新开始同一轮输入")
 	Input.action_release(&"light_attack")
-	_expect(target.hit_count == 1, "持续按住攻击会在有效落地后发动地面攻击")
 	await _destroy_world()
 
 
@@ -297,6 +305,7 @@ func _create_falling_player(position: Vector2) -> Player:
 	_add_platform(Vector2(0.0, FLOOR_Y), Vector2(1000.0, 40.0))
 	var player := _spawn_player(position)
 	await process_frame
+	await physics_frame
 	return player
 
 
