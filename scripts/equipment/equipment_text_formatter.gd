@@ -2,18 +2,19 @@ class_name EquipmentTextFormatter
 extends RefCounted
 
 
-static func format_equipment_detail(definition: EquipmentDefinition) -> String:
-	if definition == null:
+static func format_equipment_detail(item: EquipmentInstance) -> String:
+	if item == null:
 		return ""
 	var lines: Array[String] = [
-		definition.display_name,
-		"部位：%s" % EquipmentSlot.display_name(definition.slot),
+		"[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()],
+		"品质：%s" % EquipmentQuality.display_name(item.quality),
+		"部位：%s" % EquipmentSlot.display_name(item.get_slot()),
 	]
-	if definition.is_weapon():
-		lines.append("类型：%s" % weapon_type_display_name(definition.weapon_type))
+	if item.is_weapon():
+		lines.append("类型：%s" % weapon_type_display_name(item.get_weapon_type()))
 	lines.append("")
 	lines.append("属性加成")
-	var aggregated := aggregate_modifiers(definition.modifiers)
+	var aggregated := aggregate_modifiers(item.get_modifiers())
 	if aggregated.is_empty():
 		lines.append("无属性加成")
 		return "\n".join(lines)
@@ -24,11 +25,11 @@ static func format_equipment_detail(definition: EquipmentDefinition) -> String:
 	return "\n".join(lines)
 
 
-static func format_backpack_comparison(definition: EquipmentDefinition, preview: Dictionary) -> String:
-	var lines: Array[String] = [format_equipment_detail(definition)]
-	var current := preview.get("current") as EquipmentDefinition
+static func format_backpack_comparison(item: EquipmentInstance, preview: Dictionary) -> String:
+	var lines: Array[String] = [format_equipment_detail(item)]
+	var current := preview.get("current") as EquipmentInstance
 	lines.append("")
-	lines.append("当前装备：%s" % (current.display_name if current != null else "未装备"))
+	lines.append("当前装备：%s" % ("[%s] %s" % [EquipmentQuality.display_name(current.quality), current.get_display_name()] if current != null else "未装备"))
 	if not bool(preview.get("valid", false)):
 		lines.append("无法装备：当前职业无法使用该武器")
 	lines.append("")

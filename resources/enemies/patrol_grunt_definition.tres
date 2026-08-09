@@ -12,15 +12,17 @@
 script = ExtResource("5_equipment_rule")
 equipment = ExtResource("6_sword")
 chance = 0.12
-min_amount = 1
-max_amount = 1
+common_weight = 80.0
+uncommon_weight = 18.0
+rare_weight = 2.0
 
 [sub_resource type="Resource" id="Resource_bow_drop"]
 script = ExtResource("5_equipment_rule")
 equipment = ExtResource("7_bow")
 chance = 0.04
-min_amount = 1
-max_amount = 1
+common_weight = 80.0
+uncommon_weight = 18.0
+rare_weight = 2.0
 
 [sub_resource type="Resource" id="Resource_stardust_drop"]
 script = ExtResource("3_drop_rule")

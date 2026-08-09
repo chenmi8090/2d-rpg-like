@@ -127,7 +127,8 @@ var _spawn_position := Vector2.ZERO
 var _stardust_fragments := 0
 var _stats := PlayerStats.new()
 var _equipped_items: Dictionary = {}
-var _equipment_inventory: Dictionary = {}
+var _equipment_inventory: Array[EquipmentInstance] = []
+var _next_equipment_instance_serial := 1
 var _input_suppression_timer := 0.0
 var _coyote_timer := 0.0
 var _jump_buffer_timer := 0.0
@@ -446,20 +447,27 @@ func get_profession_id() -> StringName:
 
 func get_save_snapshot() -> Dictionary:
 	var equipped: Dictionary = {}
+	var instances: Dictionary = {}
 	for slot in EquipmentSlot.ALL:
-		var definition := get_equipped_item(slot)
-		if definition != null:
-			equipped[String(slot)] = String(definition.id)
-	var inventory: Array[Dictionary] = []
-	for definition in _equipment_inventory:
-		if definition is EquipmentDefinition:
-			var count := get_equipment_count(definition)
-			if count > 0:
-				inventory.append({"id": String(definition.id), "count": count})
+		var item := get_equipped_item(slot)
+		if item != null:
+			equipped[String(slot)] = item.instance_id
+			instances[item.instance_id] = item.to_snapshot()
+	var inventory_ids: Array[String] = []
+	for item in _equipment_inventory:
+		if item == null or not item.is_valid():
+			continue
+		inventory_ids.append(item.instance_id)
+		instances[item.instance_id] = item.to_snapshot()
 	return {
 		"progression": {"level": _stats.level, "experience": _stats.experience},
 		"materials": {"stardust_fragment": _stardust_fragments},
-		"equipment": {"equipped": equipped, "inventory": inventory},
+		"equipment": {
+			"next_instance_serial": _next_equipment_instance_serial,
+			"instances": instances.values(),
+			"equipped": equipped,
+			"inventory": inventory_ids,
+		},
 	}
 
 
@@ -478,19 +486,25 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	_equipped_items.clear()
 	_equipment_inventory.clear()
 	var equipment := profile.get("equipment", {}) as Dictionary
+	_next_equipment_instance_serial = maxi(int(equipment.get("next_instance_serial", 1)), 1)
+	var instances_by_id: Dictionary = {}
+	for snapshot in equipment.get("instances", []) as Array:
+		if not snapshot is Dictionary:
+			continue
+		var item := EquipmentInstance.from_snapshot(snapshot)
+		if item.is_valid() and not instances_by_id.has(item.instance_id):
+			instances_by_id[item.instance_id] = item
 	var equipped := equipment.get("equipped", {}) as Dictionary
 	for slot in EquipmentSlot.ALL:
-		var definition := DefinitionRegistry.get_equipment(StringName(String(equipped.get(String(slot), ""))))
-		if definition != null and definition.slot == slot and profession_definition.can_equip(definition):
-			_equipped_items[slot] = definition
+		var instance_id := String(equipped.get(String(slot), ""))
+		var item := instances_by_id.get(instance_id) as EquipmentInstance
+		if item != null and item.get_slot() == slot and profession_definition.can_equip(item.definition):
+			_equipped_items[slot] = item
 	var inventory := equipment.get("inventory", []) as Array
-	for entry in inventory:
-		if not entry is Dictionary:
-			continue
-		var definition := DefinitionRegistry.get_equipment(StringName(String(entry.get("id", ""))))
-		var count := maxi(int(entry.get("count", 0)), 0)
-		if definition != null and count > 0:
-			_equipment_inventory[definition] = count
+	for raw_id in inventory:
+		var item := instances_by_id.get(String(raw_id)) as EquipmentInstance
+		if item != null and not _is_equipped_instance(item.instance_id):
+			_equipment_inventory.append(item)
 	var materials := profile.get("materials", {}) as Dictionary
 	_stardust_fragments = maxi(int(materials.get("stardust_fragment", 0)), 0)
 	_stats.set_modifier_source(EQUIPMENT_MODIFIER_SOURCE, _equipment_modifiers())
@@ -569,23 +583,62 @@ func _action_just_released(action: StringName) -> bool:
 	return not _input_suppressed() and Input.is_action_just_released(action)
 
 
-func can_equip(definition: EquipmentDefinition) -> bool:
-	return profession_definition != null and profession_definition.can_equip(definition)
+func can_equip(candidate: Variant) -> bool:
+	var definition := _definition_for_equipment_candidate(candidate)
+	return definition != null and profession_definition != null and profession_definition.can_equip(definition)
 
 
-func equip_item(definition: EquipmentDefinition) -> bool:
-	if not can_equip(definition):
+func equip_item(candidate: Variant) -> bool:
+	var item := _instance_for_equipment_candidate(candidate)
+	if item == null or not can_equip(item):
 		return false
-	_equipped_items[definition.slot] = definition
+	var inventory_owned := item in _equipment_inventory
+	return _equip_instance(item, inventory_owned)
+
+
+func _equip_instance(item: EquipmentInstance, remove_from_inventory: bool) -> bool:
+	var slot := item.get_slot()
+	var replaced := get_equipped_item(slot)
+	if replaced == item:
+		return true
+	var inventory_changed := false
+	if remove_from_inventory:
+		_equipment_inventory.erase(item)
+		inventory_changed = true
+	elif item in _equipment_inventory:
+		_equipment_inventory.erase(item)
+		inventory_changed = true
+	_equipped_items[slot] = item
+	if replaced != null:
+		_equipment_inventory.append(replaced)
+		inventory_changed = true
 	_refresh_equipment_modifiers()
 	equipment_changed.emit()
+	if inventory_changed:
+		equipment_inventory_changed.emit()
 	return true
 
 
-func unequip_slot(slot: StringName) -> EquipmentDefinition:
+func _definition_for_equipment_candidate(candidate: Variant) -> EquipmentDefinition:
+	if candidate is EquipmentInstance:
+		return (candidate as EquipmentInstance).definition
+	if candidate is EquipmentDefinition:
+		return candidate as EquipmentDefinition
+	return null
+
+
+func _instance_for_equipment_candidate(candidate: Variant) -> EquipmentInstance:
+	if candidate is EquipmentInstance:
+		return candidate as EquipmentInstance
+	if candidate is EquipmentDefinition:
+		return create_template_equipment(candidate as EquipmentDefinition)
+	return null
+
+
+func unequip_slot(slot: StringName) -> EquipmentInstance:
 	if not EquipmentSlot.is_valid(slot):
 		return null
-	var removed := _equipped_items.get(slot) as EquipmentDefinition
+	var removed := _equipped_items.get(slot) as EquipmentInstance
 	if removed == null:
 		return null
 	_equipped_items.erase(slot)
@@ -594,59 +647,83 @@ func unequip_slot(slot: StringName) -> EquipmentDefinition:
 	return removed
 
 
-func get_equipped_item(slot: StringName) -> EquipmentDefinition:
-	return _equipped_items.get(slot) as EquipmentDefinition
+func get_equipped_item(slot: StringName) -> EquipmentInstance:
+	return _equipped_items.get(slot) as EquipmentInstance
 
 
 func get_equipped_items() -> Dictionary:
 	return _equipped_items.duplicate()
 
 
-func collect_equipment(definition: EquipmentDefinition, amount := 1) -> void:
-	if definition == null or not definition.is_valid() or amount <= 0:
-		return
-	_equipment_inventory[definition] = get_equipment_count(definition) + amount
-	equipment_inventory_changed.emit()
+func reserve_equipment_instance_id() -> String:
+	var instance_id := "equipment_%08d" % _next_equipment_instance_serial
+	_next_equipment_instance_serial += 1
+	return instance_id
 
 
-func get_equipment_inventory() -> Dictionary:
-	return _equipment_inventory.duplicate()
+func create_template_equipment(definition: EquipmentDefinition) -> EquipmentInstance:
+	if definition == null or not definition.is_valid():
+		return null
+	return EquipmentInstance.create_template_instance(reserve_equipment_instance_id(), definition)
 
 
-func get_equipment_count(definition: EquipmentDefinition) -> int:
-	return int(_equipment_inventory.get(definition, 0))
-
-
-func equip_inventory_item(definition: EquipmentDefinition) -> bool:
-	if definition == null or get_equipment_count(definition) <= 0:
-		equipment_equip_failed.emit("背包中没有该装备")
+func collect_equipment(item: EquipmentInstance) -> bool:
+	if item == null or not item.is_valid() or has_equipment_instance(item.instance_id):
 		return false
-	if not can_equip(definition):
-		equipment_equip_failed.emit("当前职业无法装备该武器" if definition.is_weapon() else "当前职业无法装备该物品")
-		return false
-	var replaced := get_equipped_item(definition.slot)
-	_remove_equipment_from_inventory(definition, 1)
-	_equipped_items[definition.slot] = definition
-	if replaced != null:
-		_equipment_inventory[replaced] = get_equipment_count(replaced) + 1
-	_refresh_equipment_modifiers()
-	equipment_changed.emit()
+	_equipment_inventory.append(item)
 	equipment_inventory_changed.emit()
 	return true
 
 
-func preview_equipment_stats(definition: EquipmentDefinition) -> Dictionary:
+func get_equipment_inventory() -> Array[EquipmentInstance]:
+	return _equipment_inventory.duplicate()
+
+
+func get_equipment_instance(instance_id: String) -> EquipmentInstance:
+	for item in _equipment_inventory:
+		if item != null and item.instance_id == instance_id:
+			return item
+	for item in _equipped_items.values():
+		if item is EquipmentInstance and item.instance_id == instance_id:
+			return item
+	return null
+
+
+func has_equipment_instance(instance_id: String) -> bool:
+	return get_equipment_instance(instance_id) != null
+
+
+func get_equipment_count(definition: EquipmentDefinition) -> int:
+	var count := 0
+	for item in _equipment_inventory:
+		if item != null and item.definition == definition:
+			count += 1
+	return count
+
+
+func equip_inventory_item(instance_id: String) -> bool:
+	var item := get_equipment_instance(instance_id)
+	if item == null or item not in _equipment_inventory:
+		equipment_equip_failed.emit("背包中没有该装备")
+		return false
+	if not can_equip(item):
+		equipment_equip_failed.emit("当前职业无法装备该武器" if item.is_weapon() else "当前职业无法装备该物品")
+		return false
+	return _equip_instance(item, true)
+
+
+func preview_equipment_stats(item: EquipmentInstance) -> Dictionary:
 	var before: Dictionary = {}
 	var after: Dictionary = {}
 	var delta: Dictionary = {}
-	if definition == null or not definition.is_valid():
+	if item == null or not item.is_valid():
 		return {"valid": false, "before": before, "after": after, "delta": delta, "current": null}
 	var preview_stats := PlayerStats.new()
 	preview_stats.initialize(progression_definition)
 	preview_stats.level = _stats.level
 	preview_stats.experience = _stats.experience
 	var sources := _stats.get_modifier_sources_copy()
-	sources[EQUIPMENT_MODIFIER_SOURCE] = _equipment_modifiers_with_replacement(definition)
+	sources[EQUIPMENT_MODIFIER_SOURCE] = _equipment_modifiers_with_replacement(item)
 	preview_stats.set_modifier_sources(sources)
 	for stat_key in _preview_stat_order():
 		var current_value := get_stat(stat_key)
@@ -655,29 +732,28 @@ func preview_equipment_stats(definition: EquipmentDefinition) -> Dictionary:
 		after[stat_key] = preview_value
 		delta[stat_key] = preview_value - current_value
 	return {
-		"valid": can_equip(definition),
+		"valid": can_equip(item),
 		"before": before,
 		"after": after,
 		"delta": delta,
-		"current": get_equipped_item(definition.slot),
+		"current": get_equipped_item(item.get_slot()),
 	}
 
 
-func _remove_equipment_from_inventory(definition: EquipmentDefinition, amount: int) -> void:
-	var remaining := get_equipment_count(definition) - amount
-	if remaining > 0:
-		_equipment_inventory[definition] = remaining
-	else:
-		_equipment_inventory.erase(definition)
-
-
-func _equipment_modifiers_with_replacement(candidate: EquipmentDefinition) -> Array[StatModifier]:
+func _equipment_modifiers_with_replacement(candidate: EquipmentInstance) -> Array[StatModifier]:
 	var combined: Array[StatModifier] = []
 	for slot in EquipmentSlot.ALL:
-		var definition := candidate if slot == candidate.slot else get_equipped_item(slot)
-		if definition != null:
-			combined.append_array(definition.get_modifiers())
+		var item := candidate if slot == candidate.get_slot() else get_equipped_item(slot)
+		if item != null:
+			combined.append_array(item.get_modifiers())
 	return combined
+
+
+func _is_equipped_instance(instance_id: String) -> bool:
+	for item in _equipped_items.values():
+		if item is EquipmentInstance and item.instance_id == instance_id:
+			return true
+	return false
 
 
 func _preview_stat_order() -> Array[StringName]:
@@ -697,11 +773,15 @@ func _preview_stat_order() -> Array[StringName]:
 
 func _apply_starting_equipment() -> void:
 	_equipped_items.clear()
+	_equipment_inventory.clear()
+	_next_equipment_instance_serial = 1
 	if profession_definition == null:
 		return
 	for definition in profession_definition.starting_equipment:
 		if profession_definition.can_equip(definition):
-			_equipped_items[definition.slot] = definition
+			var item := create_template_equipment(definition)
+			if item != null:
+				_equipped_items[item.get_slot()] = item
 	_stats.set_modifier_source(EQUIPMENT_MODIFIER_SOURCE, _equipment_modifiers())
 
 
@@ -714,9 +794,9 @@ func _refresh_equipment_modifiers() -> void:
 func _equipment_modifiers() -> Array[StatModifier]:
 	var combined: Array[StatModifier] = []
 	for slot in EquipmentSlot.ALL:
-		var definition := get_equipped_item(slot)
-		if definition != null:
-			combined.append_array(definition.get_modifiers())
+		var item := get_equipped_item(slot)
+		if item != null:
+			combined.append_array(item.get_modifiers())
 	return combined
 
 
@@ -839,17 +919,19 @@ func _profile_for_attack(attack_type: AttackType) -> PlayerBasicAttackProfile:
 	var weapon := get_equipped_item(EquipmentSlot.WEAPON)
 	if weapon == null:
 		return null
-	return weapon.light_attack_profile if attack_type == AttackType.LIGHT else weapon.heavy_attack_profile
+	return weapon.get_light_attack_profile() if attack_type == AttackType.LIGHT else weapon.get_heavy_attack_profile()
 
 
 func _profile_for_id(profile_id: StringName) -> PlayerBasicAttackProfile:
 	var weapon := get_equipped_item(EquipmentSlot.WEAPON)
 	if weapon == null:
 		return null
-	if weapon.light_attack_profile != null and weapon.light_attack_profile.id == profile_id:
-		return weapon.light_attack_profile
-	if weapon.heavy_attack_profile != null and weapon.heavy_attack_profile.id == profile_id:
-		return weapon.heavy_attack_profile
+	var light_profile := weapon.get_light_attack_profile()
+	var heavy_profile := weapon.get_heavy_attack_profile()
+	if light_profile != null and light_profile.id == profile_id:
+		return light_profile
+	if heavy_profile != null and heavy_profile.id == profile_id:
+		return heavy_profile
 	return null
 
 

@@ -24,7 +24,7 @@ const SAFE_SPAWN_POSITION := Vector2(80.0, 550.0)
 @onready var _experience_text: Label = $Interface/HealthPanel/ExpText
 @onready var _level_up_text: Label = $Interface/LevelUpText
 @onready var _backpack_panel: Control = $Interface/BackpackPanel
-@onready var _backpack_list: VBoxContainer = $Interface/BackpackPanel/ItemList
+@onready var _backpack_list: GridContainer = $Interface/BackpackPanel/ItemScroll/ItemList
 @onready var _backpack_empty_text: Label = $Interface/BackpackPanel/EmptyText
 @onready var _backpack_detail_panel: Control = $Interface/BackpackPanel/DetailPanel
 @onready var _backpack_detail_text: Label = $Interface/BackpackPanel/DetailPanel/DetailText
@@ -44,7 +44,7 @@ var _rng := RandomNumberGenerator.new()
 var _connected_enemies: Dictionary = {}
 var _equipment_rows: Dictionary = {}
 var _hovered_equipment_slot: StringName = &""
-var _hovered_backpack_item: EquipmentDefinition
+var _hovered_backpack_instance_id := ""
 var _level_up_tween: Tween
 
 
@@ -173,7 +173,8 @@ func _on_enemy_drop_requested(enemy: GroundedEnemyController, drop_rules: Array[
 func _roll_drop_amount(rule: EnemyDropRule) -> int:
 	if rule == null or rule.collectible == null:
 		return 0
-	if _rng.randf() > clampf(rule.chance, 0.0, 1.0):
+	var chance := clampf(rule.chance, 0.0, 1.0)
+	if chance <= 0.0 or (chance < 1.0 and _rng.randf() >= chance):
 		return 0
 	var minimum := maxi(rule.min_amount, 0)
 	var maximum := maxi(rule.max_amount, minimum)
@@ -197,32 +198,42 @@ func _spawn_pickup(definition: CollectibleDefinition, origin: Vector2, index: in
 
 
 func _on_enemy_equipment_drop_requested(enemy: GroundedEnemyController, drop_rules: Array[EquipmentDropRule]) -> void:
+	var dropped_items: Array[EquipmentInstance] = []
 	for rule in drop_rules:
-		var amount := _roll_equipment_drop_amount(rule)
-		for index in amount:
-			_spawn_equipment_pickup(rule.equipment, enemy.global_position, index, amount)
+		var item := _roll_equipment_drop(rule)
+		if item != null:
+			dropped_items.append(item)
+	for index in dropped_items.size():
+		_spawn_equipment_pickup(dropped_items[index], enemy.global_position, index, dropped_items.size())
 
 
-func _roll_equipment_drop_amount(rule: EquipmentDropRule) -> int:
-	if rule == null or rule.equipment == null:
-		return 0
-	if _rng.randf() > clampf(rule.chance, 0.0, 1.0):
-		return 0
-	var minimum := maxi(rule.min_amount, 0)
-	var maximum := maxi(rule.max_amount, minimum)
-	return _rng.randi_range(minimum, maximum)
+func _roll_equipment_drop(rule: EquipmentDropRule) -> EquipmentInstance:
+	if rule == null or rule.equipment == null or not rule.has_valid_quality_weights():
+		return null
+	var chance := clampf(rule.chance, 0.0, 1.0)
+	if chance <= 0.0 or (chance < 1.0 and _rng.randf() >= chance):
+		return null
+	var quality := EquipmentLootRoller.roll_quality(_rng, rule.common_weight, rule.uncommon_weight, rule.rare_weight)
+	return EquipmentLootRoller.create_instance(rule.equipment, quality, _player.reserve_equipment_instance_id(), _rng)
 
 
-func _spawn_equipment_pickup(definition: EquipmentDefinition, origin: Vector2, index: int, total: int) -> void:
-	if definition == null:
+func _spawn_equipment_pickup(instance: EquipmentInstance, origin: Vector2, index: int, total: int) -> void:
+	if instance == null or not instance.is_valid():
 		return
 	var pickup := EQUIPMENT_PICKUP_SCENE.instantiate() as EquipmentPickup
 	_drops.add_child(pickup)
-	pickup.global_position = origin + Vector2(0.0, -34.0)
+	pickup.global_position = _equipment_drop_position(origin)
 	var fan := 0.0
 	if total > 1:
 		fan = lerpf(-90.0, 90.0, float(index) / float(total - 1))
-	pickup.initialize(definition, 1, Vector2(fan + _rng.randf_range(-45.0, 45.0), _rng.randf_range(-460.0, -340.0)))
+	pickup.initialize(instance, Vector2(fan + _rng.randf_range(-45.0, 45.0), _rng.randf_range(-460.0, -340.0)))
+
+
+func _equipment_drop_position(origin: Vector2) -> Vector2:
+	var surface := _platform_navigation.get_surface_at_position(origin, 0.0, 72.0)
+	if surface != null:
+		return Vector2(surface.clamp_safe_x(origin.x, 24.0), surface.top_y - 34.0)
+	return Vector2(clampf(origin.x, MAP_LEFT + 24.0, MAP_RIGHT - 24.0), origin.y - 34.0)
 
 
 func _update_player_health(current: int, maximum: int) -> void:
@@ -337,10 +348,10 @@ func _update_equipment_panel() -> void:
 		var row := _equipment_rows.get(slot) as Button
 		if row == null:
 			continue
-		var definition := _player.get_equipped_item(slot)
-		var item_name := definition.display_name if definition != null else "未装备"
+		var item := _player.get_equipped_item(slot)
+		var item_name := "[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()] if item != null else "未装备"
 		row.text = "%s：%s" % [EquipmentSlot.display_name(slot), item_name]
-		row.disabled = definition == null
+		row.disabled = item == null
 	if _hovered_equipment_slot != &"":
 		_show_equipment_detail(_hovered_equipment_slot)
 
@@ -356,11 +367,11 @@ func _on_equipment_row_exited(slot: StringName) -> void:
 
 
 func _show_equipment_detail(slot: StringName) -> void:
-	var definition := _player.get_equipped_item(slot)
-	if definition == null:
+	var item := _player.get_equipped_item(slot)
+	if item == null:
 		_hide_equipment_detail()
 		return
-	_equipment_detail_text.text = EquipmentTextFormatter.format_equipment_detail(definition)
+	_equipment_detail_text.text = EquipmentTextFormatter.format_equipment_detail(item)
 	_equipment_detail_panel.visible = true
 
 
@@ -484,59 +495,78 @@ func _on_player_equipment_changed() -> void:
 func _update_backpack_panel() -> void:
 	for child in _backpack_list.get_children():
 		child.queue_free()
-	var inventory := _player.get_equipment_inventory()
-	var items: Array[EquipmentDefinition] = []
-	for key in inventory:
-		if key is EquipmentDefinition and int(inventory[key]) > 0:
-			items.append(key as EquipmentDefinition)
-	items.sort_custom(func(first: EquipmentDefinition, second: EquipmentDefinition) -> bool: return first.display_name < second.display_name)
+	var items := _player.get_equipment_inventory()
+	items.sort_custom(func(first: EquipmentInstance, second: EquipmentInstance) -> bool:
+		var first_rank := EquipmentQuality.sort_rank(first.quality)
+		var second_rank := EquipmentQuality.sort_rank(second.quality)
+		if first_rank != second_rank:
+			return first_rank > second_rank
+		var first_slot := EquipmentSlot.ALL.find(first.get_slot())
+		var second_slot := EquipmentSlot.ALL.find(second.get_slot())
+		if first_slot != second_slot:
+			return first_slot < second_slot
+		if first.get_display_name() != second.get_display_name():
+			return first.get_display_name() < second.get_display_name()
+		return first.instance_id < second.instance_id
+	)
 	_backpack_empty_text.visible = items.is_empty()
-	for definition in items:
+	for item in items:
 		var row := Button.new()
-		row.custom_minimum_size = Vector2(248.0, 34.0)
+		row.custom_minimum_size = Vector2(50.0, 50.0)
 		row.focus_mode = Control.FOCUS_NONE
-		row.text = "%s × %d" % [definition.display_name, _player.get_equipment_count(definition)]
-		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		row.set_meta(&"equipment_definition", definition)
-		row.mouse_entered.connect(_on_backpack_item_entered.bind(definition))
-		row.mouse_exited.connect(_on_backpack_item_exited.bind(definition))
-		row.pressed.connect(_on_backpack_item_pressed.bind(definition))
+		row.text = _format_backpack_slot_text(item)
+		row.tooltip_text = "[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
+		row.add_theme_color_override("font_color", EquipmentQuality.color(item.quality))
+		row.add_theme_font_size_override("font_size", 11)
+		row.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row.set_meta(&"equipment_instance_id", item.instance_id)
+		row.mouse_entered.connect(_on_backpack_item_entered.bind(item.instance_id))
+		row.mouse_exited.connect(_on_backpack_item_exited.bind(item.instance_id))
+		row.pressed.connect(_on_backpack_item_pressed.bind(item.instance_id))
 		_backpack_list.add_child(row)
-	if _hovered_backpack_item != null and _player.get_equipment_count(_hovered_backpack_item) > 0:
-		_show_backpack_detail(_hovered_backpack_item)
+	if not _hovered_backpack_instance_id.is_empty() and _player.get_equipment_instance(_hovered_backpack_instance_id) != null:
+		_show_backpack_detail(_hovered_backpack_instance_id)
 	else:
 		_hide_backpack_detail()
 
 
-func _on_backpack_item_entered(definition: EquipmentDefinition) -> void:
-	_hovered_backpack_item = definition
-	_show_backpack_detail(definition)
+func _format_backpack_slot_text(item: EquipmentInstance) -> String:
+	var quality_mark := EquipmentQuality.display_name(item.quality).substr(0, 1)
+	var short_name := item.get_display_name().substr(0, mini(item.get_display_name().length(), 3))
+	return "%s\n%s" % [quality_mark, short_name]
 
 
-func _on_backpack_item_exited(definition: EquipmentDefinition) -> void:
-	if _hovered_backpack_item == definition:
+func _on_backpack_item_entered(instance_id: String) -> void:
+	_hovered_backpack_instance_id = instance_id
+	_show_backpack_detail(instance_id)
+
+
+func _on_backpack_item_exited(instance_id: String) -> void:
+	if _hovered_backpack_instance_id == instance_id:
 		_hide_backpack_detail()
 
 
-func _on_backpack_item_pressed(definition: EquipmentDefinition) -> void:
-	if _player.equip_inventory_item(definition):
-		_backpack_feedback_text.text = "已装备：%s" % definition.display_name
+func _on_backpack_item_pressed(instance_id: String) -> void:
+	var item := _player.get_equipment_instance(instance_id)
+	if item != null and _player.equip_inventory_item(instance_id):
+		_backpack_feedback_text.text = "已装备：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
 
 
 func _on_equipment_equip_failed(message: String) -> void:
 	_backpack_feedback_text.text = "无法装备：%s" % message
 
 
-func _show_backpack_detail(definition: EquipmentDefinition) -> void:
-	if definition == null or _player.get_equipment_count(definition) <= 0:
+func _show_backpack_detail(instance_id: String) -> void:
+	var item := _player.get_equipment_instance(instance_id)
+	if item == null or item not in _player.get_equipment_inventory():
 		_hide_backpack_detail()
 		return
-	_backpack_detail_text.text = EquipmentTextFormatter.format_backpack_comparison(definition, _player.preview_equipment_stats(definition))
+	_backpack_detail_text.text = EquipmentTextFormatter.format_backpack_comparison(item, _player.preview_equipment_stats(item))
 	_backpack_detail_panel.visible = true
 
 
 func _hide_backpack_detail() -> void:
-	_hovered_backpack_item = null
+	_hovered_backpack_instance_id = ""
 	_backpack_detail_panel.visible = false
 	_backpack_detail_text.text = ""
 

@@ -5,7 +5,7 @@ signal active_profile_changed(profile_id: String)
 signal save_status_changed(message: String, failed: bool)
 signal return_countdown_changed(message: String, active: bool)
 
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 const SLOT_COUNT := 3
 const DEFAULT_SAVE_ROOT := "user://profiles"
 const CHARACTER_SELECT_SCENE := "res://scenes/ui/character_select.tscn"
@@ -225,10 +225,7 @@ func create_character(slot_index: int, raw_name: String, profession_id: StringNa
 	var progression := load("res://resources/progression/default_player_progression.tres") as PlayerProgressionDefinition
 	var now := int(Time.get_unix_time_from_system())
 	var profile_id := _generate_profile_id(slot_index, now)
-	var equipped: Dictionary = {}
-	for definition in profession.starting_equipment:
-		if definition != null and profession.can_equip(definition):
-			equipped[String(definition.slot)] = String(definition.id)
+	var equipment := _create_starting_equipment_snapshot(profession)
 	var profile := {
 		"version": SAVE_VERSION,
 		"profile_id": profile_id,
@@ -243,7 +240,7 @@ func create_character(slot_index: int, raw_name: String, profession_id: StringNa
 			"experience": progression.starting_experience if progression != null else 0,
 		},
 		"materials": {"stardust_fragment": 0},
-		"equipment": {"equipped": equipped, "inventory": []},
+		"equipment": equipment,
 		"location": {"area_id": String(DEFAULT_AREA_ID), "safe_spawn_id": String(DEFAULT_SPAWN_ID)},
 		"meta": {"last_save_reason": "creation"},
 	}
@@ -557,7 +554,7 @@ func _normalize_profile(raw: Variant) -> Dictionary:
 	profile["play_time_seconds"] = maxi(int(profile.get("play_time_seconds", 0)), 0)
 	profile["progression"] = _normalize_progression(profile.get("progression", {}))
 	profile["materials"] = _normalize_materials(profile.get("materials", {}))
-	profile["equipment"] = _normalize_equipment(profile.get("equipment", {}), profession_id)
+	profile["equipment"] = _normalize_equipment(profile.get("equipment", {}), profession_id, version)
 	profile["location"] = _normalize_location(profile.get("location", {}))
 	profile["created_at"] = int(profile.get("created_at", 0))
 	profile["updated_at"] = int(profile.get("updated_at", profile.created_at))
@@ -575,29 +572,130 @@ func _normalize_materials(raw: Variant) -> Dictionary:
 	return {"stardust_fragment": maxi(int(source.get("stardust_fragment", 0)), 0)}
 
 
-func _normalize_equipment(raw: Variant, profession_id: StringName) -> Dictionary:
+func _normalize_equipment(raw: Variant, profession_id: StringName, source_version := SAVE_VERSION) -> Dictionary:
 	var source := raw as Dictionary if raw is Dictionary else {}
+	if source_version < 2 or not source.has("instances"):
+		return _migrate_legacy_equipment(source, profession_id)
 	var profession := get_profession_definition(profession_id)
+	var instances: Array[Dictionary] = []
+	var valid_ids: Dictionary = {}
+	var maximum_serial := 0
+	for raw_instance in source.get("instances", []) as Array:
+		var normalized := _normalize_equipment_instance(raw_instance)
+		if normalized.is_empty():
+			continue
+		var instance_id := String(normalized.instance_id)
+		if valid_ids.has(instance_id):
+			continue
+		valid_ids[instance_id] = normalized
+		instances.append(normalized)
+		maximum_serial = maxi(maximum_serial, _equipment_serial_from_id(instance_id))
 	var equipped: Dictionary = {}
-	var raw_equipped_value: Variant = source.get("equipped", {})
-	var raw_equipped := raw_equipped_value as Dictionary if raw_equipped_value is Dictionary else {}
+	var raw_equipped := source.get("equipped", {}) as Dictionary
 	for slot in EquipmentSlot.ALL:
-		var equipment_id := StringName(String(raw_equipped.get(String(slot), "")))
-		var definition := get_equipment_definition(equipment_id)
+		var instance_id := String(raw_equipped.get(String(slot), ""))
+		var snapshot := valid_ids.get(instance_id) as Dictionary
+		if snapshot.is_empty():
+			continue
+		var definition := get_equipment_definition(StringName(String(snapshot.definition_id)))
 		if definition != null and definition.slot == slot and profession.can_equip(definition):
-			equipped[String(slot)] = String(definition.id)
-	var inventory: Array[Dictionary] = []
-	var raw_inventory_value: Variant = source.get("inventory", [])
-	var raw_inventory := raw_inventory_value as Array if raw_inventory_value is Array else []
-	for entry in raw_inventory:
+			equipped[String(slot)] = instance_id
+	var equipped_ids := equipped.values()
+	var inventory: Array[String] = []
+	for raw_id in source.get("inventory", []) as Array:
+		var instance_id := String(raw_id)
+		if valid_ids.has(instance_id) and instance_id not in equipped_ids and instance_id not in inventory:
+			inventory.append(instance_id)
+	var next_serial := maxi(maxi(int(source.get("next_instance_serial", 1)), maximum_serial + 1), 1)
+	return {"next_instance_serial": next_serial, "instances": instances, "equipped": equipped, "inventory": inventory}
+
+
+func _migrate_legacy_equipment(source: Dictionary, profession_id: StringName) -> Dictionary:
+	var profession := get_profession_definition(profession_id)
+	var serial := 1
+	var instances: Array[Dictionary] = []
+	var equipped: Dictionary = {}
+	var raw_equipped := source.get("equipped", {}) as Dictionary
+	for slot in EquipmentSlot.ALL:
+		var definition := get_equipment_definition(StringName(String(raw_equipped.get(String(slot), ""))))
+		if definition == null or definition.slot != slot or not profession.can_equip(definition):
+			continue
+		var snapshot := _template_instance_snapshot(definition, serial)
+		serial += 1
+		instances.append(snapshot)
+		equipped[String(slot)] = String(snapshot.instance_id)
+	var inventory: Array[String] = []
+	for entry in source.get("inventory", []) as Array:
 		if not entry is Dictionary:
 			continue
-		var equipment_id := StringName(String(entry.get("id", "")))
-		var definition := get_equipment_definition(equipment_id)
-		var count := maxi(int(entry.get("count", 0)), 0)
-		if definition != null and count > 0:
-			inventory.append({"id": String(definition.id), "count": count})
-	return {"equipped": equipped, "inventory": inventory}
+		var definition := get_equipment_definition(StringName(String(entry.get("id", ""))))
+		var count := clampi(int(entry.get("count", 0)), 0, 99)
+		if definition == null:
+			continue
+		for _copy in count:
+			var snapshot := _template_instance_snapshot(definition, serial)
+			serial += 1
+			instances.append(snapshot)
+			inventory.append(String(snapshot.instance_id))
+	return {"next_instance_serial": serial, "instances": instances, "equipped": equipped, "inventory": inventory}
+
+
+func _create_starting_equipment_snapshot(profession: ProfessionDefinition) -> Dictionary:
+	var serial := 1
+	var instances: Array[Dictionary] = []
+	var equipped: Dictionary = {}
+	for definition in profession.starting_equipment:
+		if definition == null or not profession.can_equip(definition):
+			continue
+		var snapshot := _template_instance_snapshot(definition, serial)
+		serial += 1
+		instances.append(snapshot)
+		equipped[String(definition.slot)] = String(snapshot.instance_id)
+	return {"next_instance_serial": serial, "instances": instances, "equipped": equipped, "inventory": []}
+
+
+func _template_instance_snapshot(definition: EquipmentDefinition, serial: int) -> Dictionary:
+	var modifiers: Array[Dictionary] = []
+	for modifier in definition.get_modifiers():
+		if modifier == null:
+			continue
+		modifiers.append({"stat_key": String(modifier.stat_key), "flat_bonus": modifier.flat_bonus, "percent_bonus": modifier.percent_bonus})
+	return {
+		"instance_id": "equipment_%08d" % serial,
+		"definition_id": String(definition.id),
+		"quality": String(EquipmentQuality.COMMON),
+		"modifiers": modifiers,
+	}
+
+
+func _normalize_equipment_instance(raw: Variant) -> Dictionary:
+	if not raw is Dictionary:
+		return {}
+	var source := raw as Dictionary
+	var instance_id := String(source.get("instance_id", ""))
+	var definition := get_equipment_definition(StringName(String(source.get("definition_id", ""))))
+	var quality := StringName(String(source.get("quality", "")))
+	if instance_id.is_empty() or definition == null or not EquipmentQuality.is_valid(quality):
+		return {}
+	var modifiers: Array[Dictionary] = []
+	for raw_modifier in source.get("modifiers", []) as Array:
+		if not raw_modifier is Dictionary:
+			continue
+		var stat_key := StringName(String(raw_modifier.get("stat_key", "")))
+		var flat_bonus := float(raw_modifier.get("flat_bonus", 0.0))
+		var percent_bonus := float(raw_modifier.get("percent_bonus", 0.0))
+		if stat_key not in EquipmentLootRoller.ALLOWED_STATS or not is_finite(flat_bonus) or flat_bonus <= 0.0 or not is_zero_approx(percent_bonus):
+			continue
+		modifiers.append({"stat_key": String(stat_key), "flat_bonus": flat_bonus, "percent_bonus": 0.0})
+	if modifiers.is_empty() and not definition.get_modifiers().is_empty():
+		return {}
+	return {"instance_id": instance_id, "definition_id": String(definition.id), "quality": String(quality), "modifiers": modifiers}
+
+
+func _equipment_serial_from_id(instance_id: String) -> int:
+	if not instance_id.begins_with("equipment_"):
+		return 0
+	return maxi(int(instance_id.trim_prefix("equipment_")), 0)
 
 
 func _normalize_location(raw: Variant) -> Dictionary:

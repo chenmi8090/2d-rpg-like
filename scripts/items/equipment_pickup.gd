@@ -7,17 +7,17 @@ extends CharacterBody2D
 @export var max_attract_speed := 620.0
 @export var floor_friction := 900.0
 @export var pop_delay := 0.18
+@export_range(1.0, 300.0, 1.0) var lifetime := 30.0
+@export_range(0.0, 10.0, 0.1) var fade_duration := 3.0
 
-var definition: EquipmentDefinition
-var amount := 1
+var instance: EquipmentInstance
 var _active := true
 var _age := 0.0
 var _player: Player
 
 
-func initialize(pickup_definition: EquipmentDefinition, pickup_amount: int, launch_velocity: Vector2) -> void:
-	definition = pickup_definition
-	amount = maxi(pickup_amount, 1)
+func initialize(pickup_instance: EquipmentInstance, launch_velocity: Vector2) -> void:
+	instance = pickup_instance
 	velocity = launch_velocity
 	queue_redraw()
 
@@ -30,6 +30,12 @@ func _physics_process(delta: float) -> void:
 	if not _active:
 		return
 	_age += delta
+	if _age >= lifetime:
+		deactivate()
+		queue_free()
+		return
+	if fade_duration > 0.0 and _age > lifetime - fade_duration:
+		modulate.a = clampf((lifetime - _age) / fade_duration, 0.0, 1.0)
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player") as Player
 	if _age >= pop_delay and _player != null and _player.can_collect_pickups():
@@ -50,10 +56,11 @@ func _physics_process(delta: float) -> void:
 
 
 func _collect() -> void:
-	if not _active or definition == null or _player == null:
+	if not _active or instance == null or _player == null:
+		return
+	if not _player.collect_equipment(instance):
 		return
 	deactivate()
-	_player.collect_equipment(definition, amount)
 	queue_free()
 
 
@@ -68,7 +75,16 @@ func deactivate() -> void:
 
 
 func _draw() -> void:
-	var color := Color("6eb8d6")
-	draw_rect(Rect2(-9, -9, 18, 18), color, true)
-	draw_rect(Rect2(-9, -9, 18, 18), color.darkened(0.45), false, 2.0)
-	draw_circle(Vector2(-3, -3), 2.5, Color(1.0, 1.0, 1.0, 0.85))
+	var quality := instance.quality if instance != null else EquipmentQuality.COMMON
+	var color := EquipmentQuality.color(quality)
+	var points := PackedVector2Array([
+		Vector2(0.0, -11.0),
+		Vector2(11.0, 0.0),
+		Vector2(0.0, 11.0),
+		Vector2(-11.0, 0.0),
+	])
+	draw_colored_polygon(points, color)
+	draw_polyline(PackedVector2Array([points[0], points[1], points[2], points[3], points[0]]), color.darkened(0.5), 2.0)
+	var marks := EquipmentQuality.sort_rank(quality) + 1
+	for index in marks:
+		draw_circle(Vector2((float(index) - float(marks - 1) * 0.5) * 5.0, 0.0), 1.8, Color.WHITE)
