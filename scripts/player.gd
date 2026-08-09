@@ -108,6 +108,8 @@ var _current_attack_profile: PlayerBasicAttackProfile
 var _current_attack_damage := 1
 var _current_attack_projectile_spawned := false
 var _current_attack_hit_confirmed := false
+var _air_attack_consumed := false
+var _attack_started_on_floor := false
 var _next_light_attack_time := 0.0
 var _next_heavy_attack_time := 0.0
 var _health := 10
@@ -172,6 +174,12 @@ func _notification(what: int) -> void:
 	suppress_gameplay_input()
 
 
+func _exit_tree() -> void:
+	_cancel_attack()
+	_clear_owned_projectiles()
+	_air_attack_consumed = false
+
+
 func _physics_process(delta: float) -> void:
 	_elapsed_time += delta
 	_input_suppression_timer = maxf(_input_suppression_timer - delta, 0.0)
@@ -188,18 +196,19 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var was_on_floor := is_on_floor()
+	var attack_started_on_floor_before_move := current_state == State.ATTACK and _attack_started_on_floor
 	_update_drop_through(delta)
 	_update_jump_timers(delta, was_on_floor)
 	_update_sprint_input()
 	_handle_attack_input()
+	attack_started_on_floor_before_move = current_state == State.ATTACK and _attack_started_on_floor
 	_update_attack(delta)
 	if current_state != State.ATTACK:
 		_handle_ground_actions(was_on_floor)
 	_apply_horizontal_movement(delta, was_on_floor)
 	_apply_vertical_movement(delta, was_on_floor)
 	move_and_slide()
-	if not was_on_floor and is_on_floor():
-		_handle_landing()
+	_handle_floor_transition(was_on_floor, attack_started_on_floor_before_move)
 	_resolve_state()
 
 
@@ -208,6 +217,7 @@ func receive_hit(amount: int, _source: Node, hit_direction: float, metadata: Dic
 		return false
 	_capture_pre_hit_snapshot()
 	_cancel_attack()
+	_air_attack_consumed = not is_on_floor()
 	_clear_transient_movement_state(false, true)
 	var final_amount := _stats.mitigate_physical_damage(amount)
 	var reaction := _classify_hit_reaction(final_amount, hit_direction, metadata)
@@ -486,6 +496,7 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	_stats.set_modifier_source(EQUIPMENT_MODIFIER_SOURCE, _equipment_modifiers())
 	_cancel_attack()
 	_clear_owned_projectiles()
+	_air_attack_consumed = false
 	velocity = Vector2.ZERO
 	_health = get_max_health()
 	_hit_stun_timer = 0.0
@@ -786,8 +797,13 @@ func _update_sprint_input() -> void:
 
 
 func _handle_attack_input() -> void:
-	if not is_on_floor() or current_state == State.CROUCH or current_state == State.ATTACK:
+	if current_state == State.CROUCH or current_state == State.ATTACK:
 		return
+	if not is_on_floor():
+		if current_state != State.JUMP and current_state != State.FALL:
+			return
+		if _air_attack_consumed:
+			return
 
 	var requested_type := -1
 	var light_just_pressed := _action_just_pressed(&"light_attack")
@@ -843,6 +859,8 @@ func _start_attack(attack_type: AttackType) -> void:
 	var profile := _profile_for_attack(attack_type)
 	if profile == null or not profile.is_valid():
 		return
+	var started_airborne := not is_on_floor()
+	_attack_started_on_floor = not started_airborne
 	_current_attack_profile = profile
 	_current_attack_type = attack_type
 	_last_auto_attack_type = attack_type
@@ -865,6 +883,8 @@ func _start_attack(attack_type: AttackType) -> void:
 	_attack_elapsed = 0.0
 	_attack_hitbox_active = false
 	_sprint_direction = 0.0
+	if started_airborne:
+		_air_attack_consumed = true
 	_set_state(State.ATTACK)
 	attack_started.emit(_current_attack_type, profile.id)
 
@@ -923,7 +943,7 @@ func _cancel_attack() -> void:
 	_end_attack(true, false)
 
 
-func _end_attack(cancelled: bool, restore_idle: bool) -> void:
+func _end_attack(cancelled: bool, resolve_after_end: bool) -> void:
 	var ended_type := _current_attack_type
 	var ended_profile_id := _current_attack_profile.id if _current_attack_profile != null else &""
 	_attack_hitbox.deactivate()
@@ -933,8 +953,16 @@ func _end_attack(cancelled: bool, restore_idle: bool) -> void:
 	_visual.set_attack(false, ended_type)
 	_clear_attack_snapshot()
 	attack_ended.emit(ended_type, ended_profile_id, cancelled)
-	if restore_idle:
-		_set_state(State.IDLE)
+	if resolve_after_end:
+		_resolve_state_after_attack()
+
+
+func _resolve_state_after_attack() -> void:
+	if not is_on_floor():
+		_set_state(State.JUMP if velocity.y < 0.0 else State.FALL)
+		return
+	_set_state(State.IDLE)
+	_resolve_state()
 
 
 func _clear_attack_snapshot() -> void:
@@ -942,6 +970,7 @@ func _clear_attack_snapshot() -> void:
 	_current_attack_damage = 1
 	_current_attack_projectile_spawned = false
 	_current_attack_hit_confirmed = false
+	_attack_started_on_floor = false
 
 
 func _current_attack_metadata() -> Dictionary:
@@ -1094,7 +1123,13 @@ func _apply_horizontal_movement(delta: float, was_on_floor: bool) -> void:
 
 	var direction := _movement_axis()
 	if current_state == State.ATTACK:
-		velocity.x = direction * move_speed * _attack_walk_speed_multiplier()
+		var attack_target_velocity := direction * move_speed * _attack_walk_speed_multiplier()
+		if was_on_floor:
+			velocity.x = attack_target_velocity
+		elif direction == 0.0:
+			velocity.x = move_toward(velocity.x, 0.0, air_deceleration * delta)
+		else:
+			velocity.x = move_toward(velocity.x, attack_target_velocity, air_acceleration * delta)
 		return
 
 	if direction != 0.0:
@@ -1125,20 +1160,27 @@ func _apply_vertical_movement(delta: float, was_on_floor: bool) -> void:
 			gravity_scale = apex_gravity_multiplier
 		velocity.y = minf(velocity.y + gravity * gravity_scale * delta, maximum_fall_speed)
 
-	if current_state != State.ATTACK and _action_just_released(&"jump") and velocity.y < jump_velocity * jump_cutoff_multiplier:
+	if _action_just_released(&"jump") and velocity.y < jump_velocity * jump_cutoff_multiplier:
 		velocity.y = jump_velocity * jump_cutoff_multiplier
+
+
+func _handle_floor_transition(was_on_floor: bool, attack_started_on_floor_before_move: bool) -> void:
+	var on_floor_now := is_on_floor()
+	if not was_on_floor and on_floor_now:
+		_handle_landing()
+		return
+	if was_on_floor and not on_floor_now and attack_started_on_floor_before_move:
+		_air_attack_consumed = true
 
 
 func _handle_landing() -> void:
 	_jump_consumed = false
 	_coyote_timer = coyote_time
+	_air_attack_consumed = false
 
 
 func _resolve_state() -> void:
 	if current_state == State.ATTACK:
-		if not is_on_floor():
-			_cancel_attack()
-			_set_state(State.FALL)
 		return
 
 	if not is_on_floor():
@@ -1238,6 +1280,7 @@ func _clear_owned_projectiles() -> void:
 func respawn(reason: RespawnReason = RespawnReason.DEATH) -> void:
 	_cancel_attack()
 	_clear_owned_projectiles()
+	_air_attack_consumed = false
 	global_position = _spawn_position
 	velocity = Vector2.ZERO
 	suppress_gameplay_input()
