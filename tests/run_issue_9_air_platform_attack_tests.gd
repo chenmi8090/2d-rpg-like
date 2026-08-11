@@ -212,7 +212,7 @@ func _test_cleanup() -> void:
 	await _physics_frames(3)
 	Input.action_release(&"heavy_attack")
 	await _physics_frames(4)
-	player.receive_hit(1, player, -1.0)
+	player.receive_hit(1, player, -1.0, {"is_critical": true})
 	_expect(player.current_state == Player.State.HIT, "空中攻击受击后立即进入受击状态")
 	await _destroy_world()
 

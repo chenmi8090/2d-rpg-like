@@ -56,6 +56,7 @@ jump_retry_delay = 0.75
 jump_timeout = 1.6
 hit_stun_time = 0.14
 hit_flash_time = 0.14
+knockback_damage_ratio = 0.35
 knockback_speed = 70.0
 body_radius = 24.0
 body_height = 76.0

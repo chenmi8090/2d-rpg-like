@@ -258,8 +258,10 @@ func _update_chase() -> void:
 		return
 
 	_face_target()
-	if is_on_floor() and _target_on_same_surface() and _target_in_attack_range() and _attack_cooldown_timer == 0.0 and _attack_definition() != null:
-		_start_attack()
+	if is_on_floor() and _target_on_same_surface() and _target_in_attack_range():
+		velocity.x = 0.0
+		if _attack_cooldown_timer == 0.0 and _attack_definition() != null:
+			_start_attack()
 		return
 	if _has_wall_ahead():
 		velocity.x = 0.0
@@ -855,7 +857,12 @@ func _resolve_player_source(source: Node, visited: Dictionary = {}, depth := 0) 
 	return null
 
 
-func receive_hit(amount: int, source: Node, hit_direction: float) -> bool:
+func receive_hit(
+	amount: int,
+	source: Node,
+	hit_direction: float,
+	metadata: Dictionary = {}
+) -> bool:
 	if current_state == State.DEAD or _death_pending:
 		return false
 	var attacking_player := _resolve_player_source(source)
@@ -863,16 +870,34 @@ func receive_hit(amount: int, source: Node, hit_direction: float) -> bool:
 		_target = attacking_player
 		_target_acquired = true
 		_last_target_surface_id = &""
-	_clear_edge_drop_commitment()
-	_clear_jump_chase()
-	_cancel_attack()
 	_health = maxi(_health - amount, 0)
 	_hit_flash_timer = _hit_flash_time()
-	_hit_stun_timer = _hit_stun_time()
-	velocity.x = signf(hit_direction) * _knockback_speed()
 	if _health <= 0:
 		_death_pending = true
 		_lethal_source = source
+		_clear_edge_drop_commitment()
+		_clear_jump_chase()
+		_cancel_attack()
+		_hit_stun_timer = _hit_stun_time()
+		current_state = State.HIT
+		queue_redraw()
+		return true
+	if not HitReactionRules.qualifies_for_knockback(
+		amount,
+		_max_health(),
+		_knockback_damage_ratio(),
+		metadata
+	):
+		queue_redraw()
+		return true
+	_clear_edge_drop_commitment()
+	_clear_jump_chase()
+	_cancel_attack()
+	_hit_stun_timer = _hit_stun_time()
+	velocity.x = signf(hit_direction) * HitReactionRules.resolve_knockback_speed(
+		_knockback_speed(),
+		metadata
+	)
 	current_state = State.HIT
 	queue_redraw()
 	return true
@@ -974,6 +999,10 @@ func _hit_stun_time() -> float:
 
 func _hit_flash_time() -> float:
 	return maxf(definition.hit_flash_time, 0.0) if definition != null else 0.12
+
+
+func _knockback_damage_ratio() -> float:
+	return maxf(definition.knockback_damage_ratio, 0.0) if definition != null else 0.2
 
 
 func _knockback_speed() -> float:

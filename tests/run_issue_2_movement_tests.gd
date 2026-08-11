@@ -219,12 +219,12 @@ func _test_input_safety() -> void:
 	await physics_frame
 	Input.action_release(&"move_right")
 	Input.action_press(&"jump")
-	player.receive_hit(1, player, 1.0)
+	player.receive_hit(1, player, 1.0, {"is_critical": true})
 	Input.action_release(&"jump")
 	_expect(
 		player.current_state == Player.State.HIT
-		and is_zero_approx(player.velocity.x),
-		"普通受击清除输入状态且不产生水平击退"
+		and player.velocity.x > 0.0,
+		"产生击退的受击清除输入状态并施加水平后退"
 	)
 	await _physics_frames(18)
 	_expect(player.current_state != Player.State.JUMP, "受击前的跳跃缓存不会在硬直后触发")

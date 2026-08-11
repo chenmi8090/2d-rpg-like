@@ -39,6 +39,7 @@ extends Resource
 @export_category("Reactions")
 @export_range(0.0, 5.0, 0.01) var hit_stun_time := 0.18
 @export_range(0.0, 5.0, 0.01) var hit_flash_time := 0.12
+@export_range(0.0, 1.0, 0.01) var knockback_damage_ratio := 0.2
 @export_range(0.0, 1000.0, 1.0) var knockback_speed := 120.0
 
 @export_category("Geometry")

@@ -120,14 +120,23 @@ func _test_attack_interruptions() -> void:
 	var enemy := actors.enemy as GroundedEnemyController
 	await _wait_for_phase(enemy, GroundedEnemyController.AttackPhase.STARTUP)
 	var health_before := player.get_health()
-	_expect(enemy.receive_hit(1, player, -1.0), "玩家来源的命中可中断敌人前摇")
+	_expect(enemy.receive_hit(1, player, -1.0), "低伤害命中可被敌人接受")
+	_expect(
+		enemy.get_attack_phase() == GroundedEnemyController.AttackPhase.STARTUP
+		and enemy.current_state == GroundedEnemyController.State.ATTACK,
+		"低伤害不打断敌人前摇"
+	)
+	_expect(
+		enemy.receive_hit(2, player, -1.0),
+		"达到共享伤害比例阈值的命中可被敌人接受"
+	)
 	_expect(
 		enemy.get_attack_phase() == GroundedEnemyController.AttackPhase.NONE
 		and not enemy.is_attack_hitbox_active(),
-		"前摇中断立即清理阶段和 Hitbox"
+		"达到阈值的命中立即清理前摇和 Hitbox"
 	)
 	await _physics_frames(28)
-	_expect(player.get_health() == health_before, "被中断的前摇不会留下延迟伤害")
+	_expect(player.get_health() == health_before, "被击退中断的前摇不会留下延迟伤害")
 	await _destroy_world()
 
 	actors = await _create_combat_world(GRUNT_DEFINITION)
@@ -137,9 +146,15 @@ func _test_attack_interruptions() -> void:
 	_expect(enemy.is_attack_hitbox_active(), "生效中断测试先开启 Hitbox")
 	enemy.receive_hit(1, player, -1.0)
 	_expect(
+		enemy.get_attack_phase() == GroundedEnemyController.AttackPhase.ACTIVE
+		and enemy.is_attack_hitbox_active(),
+		"低伤害不关闭生效阶段 Hitbox"
+	)
+	enemy.receive_hit(1, player, -1.0, {"is_critical": true})
+	_expect(
 		enemy.get_attack_phase() == GroundedEnemyController.AttackPhase.NONE
 		and not enemy.is_attack_hitbox_active(),
-		"生效阶段受击立即关闭攻击 Hitbox"
+		"暴击产生击退并立即关闭生效阶段 Hitbox"
 	)
 	await _destroy_world()
 
@@ -149,9 +164,20 @@ func _test_attack_interruptions() -> void:
 	await _wait_for_phase(enemy, GroundedEnemyController.AttackPhase.RECOVERY)
 	enemy.receive_hit(1, player, -1.0)
 	_expect(
+		enemy.get_attack_phase() == GroundedEnemyController.AttackPhase.RECOVERY,
+		"低伤害不打断敌人恢复阶段"
+	)
+	enemy.receive_hit(
+		1,
+		player,
+		-1.0,
+		{"force_knockback": true, "minimum_knockback_speed": 80.0}
+	)
+	_expect(
 		enemy.get_attack_phase() == GroundedEnemyController.AttackPhase.NONE
-		and not enemy.is_attack_hitbox_active(),
-		"恢复阶段受击不会留下攻击提示或 Hitbox"
+		and not enemy.is_attack_hitbox_active()
+		and enemy.velocity.x <= -80.0,
+		"强制击退清理恢复阶段并保证最小后退速度"
 	)
 	await _destroy_world()
 
@@ -208,6 +234,7 @@ func _test_target_invalidation() -> void:
 
 func _test_attack_cooldown() -> void:
 	var actors := await _create_combat_world(GRUNT_DEFINITION)
+	var player := actors.player as Player
 	var enemy := actors.enemy as GroundedEnemyController
 	var startup_count := 0
 	enemy.attack_phase_changed.connect(
@@ -225,8 +252,15 @@ func _test_attack_cooldown() -> void:
 		),
 		"自然攻击在恢复结束后清理阶段"
 	)
+	var cooldown_position := enemy.global_position.x
 	await _physics_frames(45)
 	_expect(startup_count == 1, "自然攻击完成后的冷却阻止立即重复攻击")
+	_expect(
+		absf(enemy.global_position.x - cooldown_position) < 1.0
+		and is_zero_approx(enemy.velocity.x)
+		and enemy.global_position.x < player.global_position.x,
+		"玩家仍在攻击范围内时敌人在冷却期间保持站位且不穿过玩家"
+	)
 	_expect(await _wait_for_startup_count(2, enemy, 80), "配置冷却结束后敌人可以再次攻击")
 	await _destroy_world()
 

@@ -37,6 +37,7 @@ enum DamageStat {
 @export var visual_key: StringName
 @export var color := Color.WHITE
 @export_category("Feedback")
+@export_range(0.0, 1000.0, 1.0) var minimum_knockback_speed := 80.0
 @export_range(0.0, 1.0, 0.01) var hit_feedback_time := 0.10
 @export_range(0.0, 2.0, 0.01) var hit_feedback_intensity := 1.0
 

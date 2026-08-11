@@ -239,7 +239,7 @@ func _test_attack_interruptions() -> void:
 	Input.action_press(&"heavy_attack")
 	await _physics_frames(8)
 	Input.action_release(&"heavy_attack")
-	player.receive_hit(1, player, -1.0)
+	player.receive_hit(1, player, -1.0, {"is_critical": true})
 	await _physics_frames(25)
 	_expect(target.hit_count == 0, "重攻击准备阶段受击后不会延迟命中")
 	_expect(player.current_state != Player.State.ATTACK, "受击正确中断攻击状态")

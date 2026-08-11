@@ -205,7 +205,7 @@ func _assert_interruption_cleans_pose(phase: int, label: String) -> void:
 	await _wait_for_phase(enemy, phase)
 	var pose_before := enemy.get_attack_visual_pose()
 	_expect(float(pose_before["amplitude"]) > 0.0, "%s 阶段中断前有攻击动作" % label)
-	enemy.receive_hit(1, player, -1.0)
+	enemy.receive_hit(1, player, -1.0, {"force_knockback": true})
 	_expect(enemy.get_attack_phase() == GroundedEnemyController.AttackPhase.NONE, "%s 阶段受击清理攻击阶段" % label)
 	_expect(not enemy.is_attack_hitbox_active(), "%s 阶段受击关闭攻击 Hitbox" % label)
 	_assert_neutral_clean(enemy.get_attack_visual_pose(), "%s 阶段受击" % label)

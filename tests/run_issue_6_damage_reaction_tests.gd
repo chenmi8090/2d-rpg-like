@@ -41,7 +41,7 @@ func _init() -> void:
 
 func _run() -> void:
 	_ensure_game_session()
-	await _test_normal_reaction_has_stun_without_horizontal_knockback()
+	await _test_low_damage_reaction_does_not_interrupt_or_knock_back()
 	await _test_heavy_damage_reaction_has_capped_knockback_and_protection()
 	await _test_heavy_reaction_from_critical_metadata()
 	await _test_airborne_and_sprint_context_thresholds()
@@ -60,16 +60,20 @@ func _run() -> void:
 		quit(1)
 
 
-func _test_normal_reaction_has_stun_without_horizontal_knockback() -> void:
+func _test_low_damage_reaction_does_not_interrupt_or_knock_back() -> void:
 	var player := await _create_grounded_player()
+	Input.action_press(&"light_attack")
+	await _physics_frames(2)
+	Input.action_release(&"light_attack")
+	_expect(player.current_state == Player.State.ATTACK, "普通伤害测试先开始玩家攻击")
 	var health_before := player.get_health()
 	_expect(player.receive_hit(1, player, 1.0), "普通伤害可被玩家接受")
 	_expect(player.get_health() == health_before - 1, "普通伤害扣除生命")
-	_expect(player.current_state == Player.State.HIT, "普通伤害进入受击状态")
+	_expect(player.current_state == Player.State.ATTACK, "普通伤害不打断玩家正在进行的攻击")
 	_expect(player.get_last_hit_reaction() == Player.HitReaction.NORMAL, "低伤害命中记录为普通反应")
 	_expect(player.get_last_mitigated_hit_damage() == 1, "记录减免后的普通伤害")
 	_expect(is_equal_approx(player.get_last_hit_damage_ratio(), 1.0 / float(player.get_max_health())), "记录普通伤害占最大生命比例")
-	_expect(player.get_hit_stun_remaining() > 0.0 and player.get_hit_stun_remaining() <= player.hit_stun_time, "普通反应使用普通硬直计时")
+	_expect(is_zero_approx(player.get_hit_stun_remaining()), "普通反应不启动受击硬直")
 	_expect(is_zero_approx(player.velocity.x), "普通受击不施加水平击退")
 	_expect(not player.is_heavy_reaction_protected(), "普通受击不启动重反应保护")
 	await _destroy_world()
@@ -92,10 +96,11 @@ func _test_heavy_damage_reaction_has_capped_knockback_and_protection() -> void:
 
 	player = await _create_grounded_player()
 	_expect(player.receive_hit(6, player, -1.0), "首个高伤害触发重反应保护")
+	var protected_velocity := player.velocity.x
 	player.set("_invulnerability_timer", 0.0)
 	_expect(player.receive_hit(6, player, 1.0), "保护期间非致命后续伤害仍可接受")
 	_expect(player.get_last_hit_reaction() == Player.HitReaction.NORMAL, "重反应保护期间后续高伤害降级为普通反应")
-	_expect(is_zero_approx(player.velocity.x), "保护期间降级的普通反应不水平击退")
+	_expect(is_equal_approx(player.velocity.x, protected_velocity), "保护期间降级的普通反应不新增或反转水平击退")
 	var protection_seconds := player.get_heavy_reaction_protection_remaining()
 	await _physics_frames(int(ceil(protection_seconds * Engine.physics_ticks_per_second)) + 4)
 	_expect(not player.is_heavy_reaction_protected(), "重反应保护会按配置过期")
@@ -183,17 +188,29 @@ func _test_player_outgoing_metadata_for_melee_and_projectile() -> void:
 	metadata = player.call("_current_attack_metadata") as Dictionary
 	_expect(metadata.get("attack_id") == &"sword_light", "玩家近战轻击元数据包含攻击 id")
 	_expect(metadata.has("is_critical") and metadata.get("is_critical") is bool, "玩家近战轻击元数据包含可观察暴击布尔值")
+	_expect(not bool(metadata.get("force_knockback", false)), "玩家轻击不强制击退")
 	Input.action_release(&"light_attack")
 	await _destroy_world()
 
 	player = await _create_grounded_player()
+	Input.action_press(&"heavy_attack")
+	await _physics_frames(2)
+	metadata = player.call("_current_attack_metadata") as Dictionary
+	_expect(metadata.get("attack_id") == &"sword_heavy", "玩家近战重击元数据包含攻击 id")
+	_expect(bool(metadata.get("force_knockback", false)), "玩家近战重击强制击退")
+	_expect(float(metadata.get("minimum_knockback_speed", 0.0)) > 0.0, "玩家近战重击提供最小击退速度")
+	Input.action_release(&"heavy_attack")
+	await _destroy_world()
+
+	player = await _create_grounded_player()
 	_expect(player.equip_item(STAR_STAFF), "玩家可装备测试法杖")
-	Input.action_press(&"light_attack")
+	Input.action_press(&"heavy_attack")
 	await _physics_frames(4)
 	metadata = player.call("_current_attack_metadata") as Dictionary
-	_expect(metadata.get("attack_id") == &"staff_light", "玩家法杖轻击元数据包含攻击 id")
-	_expect(metadata.has("is_critical") and metadata.get("is_critical") is bool, "玩家法杖轻击元数据包含可观察暴击布尔值")
-	Input.action_release(&"light_attack")
+	_expect(metadata.get("attack_id") == &"staff_heavy", "玩家法杖重击元数据包含攻击 id")
+	_expect(bool(metadata.get("force_knockback", false)), "玩家法杖重弹强制击退")
+	_expect(float(metadata.get("minimum_knockback_speed", 0.0)) > 0.0, "玩家法杖重弹保留最小击退速度")
+	Input.action_release(&"heavy_attack")
 	await _destroy_world()
 
 

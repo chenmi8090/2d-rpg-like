@@ -56,6 +56,7 @@ jump_retry_delay = 0.45
 jump_timeout = 1.4
 hit_stun_time = 0.18
 hit_flash_time = 0.12
+knockback_damage_ratio = 0.2
 knockback_speed = 120.0
 melee_attack = ExtResource("2_attack")
 drop_rules = Array[ExtResource("3_drop_rule")]([SubResource("Resource_stardust_drop")])

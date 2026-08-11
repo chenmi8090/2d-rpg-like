@@ -218,9 +218,6 @@ func receive_hit(amount: int, _source: Node, hit_direction: float, metadata: Dic
 	if current_state == State.DEAD or _invulnerability_timer > 0.0:
 		return false
 	_capture_pre_hit_snapshot()
-	_cancel_attack()
-	_air_attack_consumed = not is_on_floor()
-	_clear_transient_movement_state(false, true)
 	var final_amount := _stats.mitigate_physical_damage(amount)
 	var reaction := _classify_hit_reaction(final_amount, hit_direction, metadata)
 	_record_hit_observability(reaction, final_amount)
@@ -230,6 +227,12 @@ func receive_hit(amount: int, _source: Node, hit_direction: float, metadata: Dic
 		_enter_dead()
 		return true
 	_invulnerability_timer = invulnerability_time
+	if reaction == HitReaction.NORMAL:
+		_visual.show_hurt_feedback(hit_stun_time, 1.0)
+		return true
+	_cancel_attack()
+	_air_attack_consumed = not is_on_floor()
+	_clear_transient_movement_state(false, true)
 	_apply_hit_reaction(reaction, hit_direction, metadata)
 	_set_state(State.HIT)
 	return true
@@ -282,12 +285,13 @@ func _capture_pre_hit_snapshot() -> void:
 
 
 func _classify_hit_reaction(mitigated_amount: int, hit_direction: float, metadata: Dictionary) -> HitReaction:
-	var mitigated_ratio := _hit_damage_ratio(mitigated_amount)
-	var candidate_heavy := false
-	if mitigated_ratio >= heavy_hit_damage_ratio:
-		candidate_heavy = true
-	if bool(metadata.get("is_critical", false)):
-		candidate_heavy = true
+	var mitigated_ratio := HitReactionRules.damage_ratio(mitigated_amount, get_max_health())
+	var candidate_heavy := HitReactionRules.qualifies_for_knockback(
+		mitigated_amount,
+		get_max_health(),
+		heavy_hit_damage_ratio,
+		metadata
+	)
 	if mitigated_ratio >= heavy_airborne_damage_ratio and not _pre_hit_on_floor:
 		candidate_heavy = true
 	if mitigated_ratio >= heavy_sprint_damage_ratio and _was_true_sprint_into_hit(hit_direction):
@@ -298,7 +302,7 @@ func _classify_hit_reaction(mitigated_amount: int, hit_direction: float, metadat
 
 
 func _hit_damage_ratio(mitigated_amount: int) -> float:
-	return float(maxi(mitigated_amount, 0)) / float(get_max_health())
+	return HitReactionRules.damage_ratio(mitigated_amount, get_max_health())
 
 
 func _record_hit_observability(reaction: HitReaction, mitigated_amount: int) -> void:
@@ -1096,10 +1100,14 @@ func _clear_attack_snapshot() -> void:
 func _current_attack_metadata() -> Dictionary:
 	if _current_attack_profile == null:
 		return {}
-	return {
+	var metadata := {
 		"attack_id": _current_attack_profile.id,
 		"is_critical": _current_attack_critical,
 	}
+	if _current_attack_profile.attack_type == AttackType.HEAVY:
+		metadata["force_knockback"] = true
+		metadata["minimum_knockback_speed"] = _current_attack_profile.minimum_knockback_speed
+	return metadata
 
 
 func _phase_for_attack_elapsed(elapsed: float, profile: PlayerBasicAttackProfile) -> AttackPhase:
