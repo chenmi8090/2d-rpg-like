@@ -1,5 +1,7 @@
 extends Control
 
+const UI_STYLE := preload("res://scripts/ui/ui_style.gd")
+
 @onready var _slot_list: VBoxContainer = $Margin/Layout/SlotList
 @onready var _message_label: Label = $Margin/Layout/MessageLabel
 @onready var _delete_panel: PanelContainer = $DeletePanel
@@ -11,6 +13,7 @@ var _active_slot := -1
 
 
 func _ready() -> void:
+	_apply_ui_foundation()
 	GameSession.index_changed.connect(_refresh_slots)
 	_delete_input.text_changed.connect(_on_delete_confirmation_changed)
 	$DeletePanel/Margin/Layout/Buttons/Delete.pressed.connect(_on_delete_confirmed)
@@ -18,6 +21,18 @@ func _ready() -> void:
 	var result := GameSession.refresh_index()
 	_show_message(String(result.message), false)
 	_refresh_slots()
+
+
+func _apply_ui_foundation() -> void:
+	$Background.color = UI_STYLE.PAGE_BG
+	$Accent.color = UI_STYLE.ACCENT
+	$Margin/Layout/Title.add_theme_color_override("font_color", UI_STYLE.ACCENT)
+	$Margin/Layout/Subtitle.add_theme_color_override("font_color", UI_STYLE.TEXT_MUTED)
+	UI_STYLE.apply_panel_container(_delete_panel, true)
+	_delete_warning.add_theme_color_override("font_color", UI_STYLE.TEXT_PRIMARY)
+	UI_STYLE.apply_line_edit(_delete_input)
+	UI_STYLE.apply_button(_delete_confirm, &"danger")
+	UI_STYLE.apply_button($DeletePanel/Margin/Layout/Buttons/Cancel)
 
 
 func _refresh_slots() -> void:
@@ -30,6 +45,7 @@ func _refresh_slots() -> void:
 func _build_slot_card(slot: Dictionary) -> Control:
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(0.0, 142.0)
+	UI_STYLE.apply_panel_container(panel, true)
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 18)
 	margin.add_theme_constant_override("margin_top", 14)
@@ -47,10 +63,14 @@ func _build_slot_card(slot: Dictionary) -> Control:
 	row.add_child(marker)
 
 	var info := Label.new()
+	var occupied := not String(slot.get("profile_id", "")).is_empty()
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.add_theme_font_size_override("font_size", 18)
+	info.add_theme_color_override(
+		"font_color",
+		UI_STYLE.TEXT_PRIMARY if occupied else UI_STYLE.TEXT_MUTED
+	)
 	info.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	var occupied := not String(slot.get("profile_id", "")).is_empty()
 	if occupied:
 		var profession := GameSession.get_profession_definition(StringName(String(slot.profession_id)))
 		var profession_name := profession.display_name if profession != null else "未知职业"
@@ -75,15 +95,18 @@ func _build_slot_card(slot: Dictionary) -> Control:
 	if occupied:
 		var continue_button := Button.new()
 		continue_button.text = "继续旅程"
+		UI_STYLE.apply_button(continue_button, &"primary")
 		continue_button.pressed.connect(_on_continue_pressed.bind(slot_index))
 		buttons.add_child(continue_button)
 		var delete_button := Button.new()
 		delete_button.text = "删除角色"
+		UI_STYLE.apply_button(delete_button, &"danger")
 		delete_button.pressed.connect(_open_delete_panel.bind(slot_index))
 		buttons.add_child(delete_button)
 	else:
 		var create_button := Button.new()
 		create_button.text = "创建角色"
+		UI_STYLE.apply_button(create_button, &"primary")
 		create_button.pressed.connect(_on_create_pressed.bind(slot_index))
 		buttons.add_child(create_button)
 	return panel
@@ -144,7 +167,7 @@ func _on_delete_confirmed() -> void:
 
 func _show_message(message: String, failed: bool) -> void:
 	_message_label.text = message
-	_message_label.modulate = Color("ff916f") if failed else Color("e8d579")
+	UI_STYLE.apply_message(_message_label, failed)
 
 
 func _profession_color(profession_id: StringName) -> Color:

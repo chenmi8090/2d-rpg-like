@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="SkillDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/skills/skill_definition.gd" id="1_skill"]
+
+[resource]
+script = ExtResource("1_skill")
+id = &"meteor_burst"
+display_name = "陨星爆裂"
+description = "在地面凝聚强烈星力并向前释放，造成高额魔法伤害。"
+kind = 0
+category = &"offensive_ultimate"
+profession_ids = Array[StringName]([&"star_seeker"])
+required_level = 5
+required_weapon_types = Array[StringName]([&"staff"])
+allow_ground = true
+allow_air = false
+startup_time = 0.45
+active_time = 0.12
+recovery_time = 0.5
+cooldown = 6.0
+delivery = 1
+damage_stat = 1
+base_damage_multiplier = 1.7
+damage_multiplier_per_rank = 0.4
+projectile_speed = 480.0
+projectile_maximum_distance = 620.0
+projectile_lifetime = 1.4
+force_knockback = true
+minimum_knockback_speed = 110.0

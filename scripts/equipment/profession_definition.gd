@@ -4,6 +4,7 @@ extends Resource
 @export var id: StringName
 @export var display_name := ""
 @export var allowed_weapon_types: Array[StringName] = []
+@export var skill_ids: Array[StringName] = []
 @export var starting_equipment: Array[EquipmentDefinition] = []
 
 

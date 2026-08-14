@@ -65,7 +65,7 @@ offset_right = 900.0
 offset_bottom = 94.0
 theme_override_colors/font_color = Color(0.68, 0.78, 0.76, 1)
 theme_override_font_sizes/font_size = 16
-text = "A / D 移动    S 蹲下 + 空格 下落    空格 跳跃    J 轻攻击    K 重攻击    E 角色信息    I 装备背包    Esc 关闭窗口"
+text = "A / D 移动    S 蹲下 + 空格 下落    空格 跳跃    J 轻攻击    K 重攻击    E 角色信息    I 装备背包    P 技能    Esc 关闭窗口"
 
 [node name="HealthPanel" type="Control" parent="Interface"]
 layout_mode = 3
@@ -325,6 +325,138 @@ theme_override_constants/line_spacing = 4
 theme_override_font_sizes/font_size = 16
 text = "确定丢弃这件装备？\n\nJ 确认    Esc 取消"
 autowrap_mode = 2
+horizontal_alignment = 1
+mouse_filter = 2
+
+[node name="SkillsPanel" type="Control" parent="Interface"]
+visible = false
+layout_mode = 3
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -460.0
+offset_top = -250.0
+offset_right = 460.0
+offset_bottom = 250.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="Background" type="ColorRect" parent="Interface/SkillsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.075, 0.105, 0.13, 0.98)
+mouse_filter = 0
+
+[node name="Header" type="ColorRect" parent="Interface/SkillsPanel"]
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 916.0
+offset_bottom = 56.0
+color = Color(0.18, 0.3, 0.32, 1)
+mouse_filter = 2
+
+[node name="Title" type="Label" parent="Interface/SkillsPanel"]
+offset_left = 20.0
+offset_top = 13.0
+offset_right = 900.0
+offset_bottom = 48.0
+theme_override_colors/font_color = Color(0.95, 0.84, 0.42, 1)
+theme_override_font_sizes/font_size = 24
+text = "职业技能"
+horizontal_alignment = 1
+mouse_filter = 2
+
+[node name="PointsText" type="Label" parent="Interface/SkillsPanel"]
+offset_left = 24.0
+offset_top = 68.0
+offset_right = 510.0
+offset_bottom = 100.0
+theme_override_colors/font_color = Color(1, 0.84, 0.3, 1)
+theme_override_font_sizes/font_size = 18
+text = "剩余技能点：0"
+mouse_filter = 2
+
+[node name="EmptyText" type="Label" parent="Interface/SkillsPanel"]
+offset_left = 24.0
+offset_top = 116.0
+offset_right = 442.0
+offset_bottom = 150.0
+theme_override_colors/font_color = Color(0.68, 0.78, 0.76, 1)
+theme_override_font_sizes/font_size = 16
+text = "当前职业暂无技能"
+horizontal_alignment = 1
+mouse_filter = 2
+
+[node name="SkillScroll" type="ScrollContainer" parent="Interface/SkillsPanel"]
+offset_left = 24.0
+offset_top = 108.0
+offset_right = 442.0
+offset_bottom = 400.0
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 1
+mouse_filter = 0
+
+[node name="SkillList" type="VBoxContainer" parent="Interface/SkillsPanel/SkillScroll"]
+layout_mode = 2
+theme_override_constants/separation = 7
+mouse_filter = 2
+
+[node name="DetailPanel" type="ColorRect" parent="Interface/SkillsPanel"]
+offset_left = 466.0
+offset_top = 108.0
+offset_right = 896.0
+offset_bottom = 400.0
+color = Color(0.12, 0.18, 0.2, 0.98)
+mouse_filter = 2
+
+[node name="DetailText" type="Label" parent="Interface/SkillsPanel/DetailPanel"]
+offset_left = 16.0
+offset_top = 14.0
+offset_right = 414.0
+offset_bottom = 278.0
+theme_override_colors/font_color = Color(0.92, 0.96, 0.92, 1)
+theme_override_constants/line_spacing = 5
+theme_override_font_sizes/font_size = 15
+text = "选择技能查看详情"
+autowrap_mode = 2
+mouse_filter = 2
+
+[node name="QuickbarText" type="Label" parent="Interface/SkillsPanel"]
+offset_left = 24.0
+offset_top = 410.0
+offset_right = 896.0
+offset_bottom = 438.0
+theme_override_colors/font_color = Color(0.78, 0.88, 0.86, 1)
+theme_override_font_sizes/font_size = 15
+text = "快捷栏：1 空    2 空"
+horizontal_alignment = 1
+mouse_filter = 2
+
+[node name="FeedbackText" type="Label" parent="Interface/SkillsPanel"]
+offset_left = 24.0
+offset_top = 440.0
+offset_right = 896.0
+offset_bottom = 466.0
+theme_override_colors/font_color = Color(1, 0.72, 0.32, 1)
+theme_override_font_sizes/font_size = 15
+horizontal_alignment = 1
+mouse_filter = 2
+
+[node name="HintText" type="Label" parent="Interface/SkillsPanel"]
+offset_left = 24.0
+offset_top = 468.0
+offset_right = 896.0
+offset_bottom = 494.0
+theme_override_colors/font_color = Color(0.68, 0.78, 0.76, 1)
+theme_override_font_sizes/font_size = 14
+text = "W / S 选择    J 加点    1 / 2 配置主动技能    E / I 切换窗口    P / Esc 关闭"
 horizontal_alignment = 1
 mouse_filter = 2
 

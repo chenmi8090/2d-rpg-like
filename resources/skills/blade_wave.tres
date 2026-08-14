@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="SkillDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/skills/skill_definition.gd" id="1_skill"]
+
+[resource]
+script = ExtResource("1_skill")
+id = &"blade_wave"
+display_name = "剑气斩"
+description = "挥出可在空中使用的剑气，命中前方敌人。"
+kind = 0
+category = &"normal_offensive"
+profession_ids = Array[StringName]([&"traveler"])
+required_level = 2
+required_weapon_types = Array[StringName]([&"sword"])
+allow_ground = true
+allow_air = true
+startup_time = 0.12
+active_time = 0.1
+recovery_time = 0.22
+cooldown = 1.2
+delivery = 1
+damage_stat = 0
+base_damage_multiplier = 0.7
+damage_multiplier_per_rank = 0.12
+projectile_speed = 720.0
+projectile_maximum_distance = 520.0
+projectile_lifetime = 1.0

@@ -2,6 +2,7 @@ extends Node2D
 
 const MATERIAL_PICKUP_SCENE := preload("res://scenes/items/material_pickup.tscn")
 const EQUIPMENT_PICKUP_SCENE := preload("res://scenes/items/equipment_pickup.tscn")
+const UI_STYLE := preload("res://scripts/ui/ui_style.gd")
 const PLATFORM_COLOR := Color("42626b")
 const PLATFORM_TOP_COLOR := Color("91b86d")
 const MAP_LEFT := -370.0
@@ -41,6 +42,14 @@ const SELECTED_COLOR := Color("ffe17a")
 @onready var _equipment_detail_panel: Control = $Interface/AttributesPanel/EquipmentDetailPanel
 @onready var _equipment_detail_text: Label = $Interface/AttributesPanel/EquipmentDetailPanel/DetailText
 @onready var _character_name_text: Label = $Interface/AttributesPanel/CharacterNameText
+@onready var _skills_panel: Control = $Interface/SkillsPanel
+@onready var _skills_points_text: Label = $Interface/SkillsPanel/PointsText
+@onready var _skills_scroll: ScrollContainer = $Interface/SkillsPanel/SkillScroll
+@onready var _skills_list: VBoxContainer = $Interface/SkillsPanel/SkillScroll/SkillList
+@onready var _skills_empty_text: Label = $Interface/SkillsPanel/EmptyText
+@onready var _skills_detail_text: Label = $Interface/SkillsPanel/DetailPanel/DetailText
+@onready var _skills_quickbar_text: Label = $Interface/SkillsPanel/QuickbarText
+@onready var _skills_feedback_text: Label = $Interface/SkillsPanel/FeedbackText
 @onready var _return_button: Button = $Interface/SessionPanel/ReturnButton
 @onready var _save_status_text: Label = $Interface/SessionPanel/SaveStatusText
 @onready var _return_status_text: Label = $Interface/SessionPanel/ReturnStatusText
@@ -57,10 +66,14 @@ var _sorted_backpack_items: Array[EquipmentInstance] = []
 var _backpack_buttons_by_id: Dictionary = {}
 var _pending_discard_instance_id := ""
 var _pending_discard_index := -1
+var _selected_skill_id: StringName = &""
+var _profession_skills: Array[SkillDefinition] = []
+var _skill_buttons_by_id: Dictionary = {}
 var _level_up_tween: Tween
 
 
 func _ready() -> void:
+	_apply_ui_foundation()
 	_build_course()
 	_register_platform_navigation()
 	_rng.randomize()
@@ -74,6 +87,7 @@ func _ready() -> void:
 	_player.equipment_changed.connect(_on_player_equipment_changed)
 	_player.equipment_inventory_changed.connect(_update_backpack_panel)
 	_player.equipment_equip_failed.connect(_on_equipment_equip_failed)
+	_player.skills_changed.connect(_update_skills_panel)
 	_encounter_manager.experience_reward_accepted.connect(_on_experience_reward_accepted)
 	_return_button.pressed.connect(_on_return_button_pressed)
 	GameSession.save_status_changed.connect(_on_save_status_changed)
@@ -87,6 +101,7 @@ func _ready() -> void:
 	_update_attributes_panel()
 	_update_equipment_panel()
 	_update_backpack_panel()
+	_update_skills_panel()
 	_connect_enemy_drop_sources()
 	get_tree().node_added.connect(_on_node_added)
 
@@ -285,6 +300,44 @@ func _show_level_up(level: int, _levels_gained: int) -> void:
 	_level_up_tween.tween_callback(func() -> void: _level_up_text.visible = false)
 
 
+func _apply_ui_foundation() -> void:
+	_return_button = $Interface/SessionPanel/ReturnButton
+	UI_STYLE.apply_button(_return_button)
+	_health_fill.color = UI_STYLE.BAR_HEALTH
+	_experience_fill.color = UI_STYLE.BAR_EXPERIENCE
+	$Interface/HealthPanel/HealthBack.color = UI_STYLE.BAR_HEALTH_BACK
+	$Interface/HealthPanel/ExpBack.color = UI_STYLE.BAR_EXPERIENCE_BACK
+	$Interface/BackpackPanel/Background.color = UI_STYLE.PANEL_BG_ELEVATED
+	$Interface/BackpackPanel/Header.color = UI_STYLE.HEADER_BG
+	$Interface/BackpackPanel/DetailPanel.color = UI_STYLE.DETAIL_BG
+	$Interface/BackpackPanel/DiscardConfirmation.color = Color("05090dcc")
+	$Interface/BackpackPanel/DiscardConfirmation/Panel.color = UI_STYLE.PANEL_BG_ELEVATED
+	$Interface/AttributesPanel/Background.color = UI_STYLE.PANEL_BG_ELEVATED
+	$Interface/AttributesPanel/Header.color = UI_STYLE.HEADER_BG
+	$Interface/AttributesPanel/EquipmentDetailPanel.color = UI_STYLE.DETAIL_BG
+	$Interface/SkillsPanel/Background.color = UI_STYLE.PANEL_BG_ELEVATED
+	$Interface/SkillsPanel/Header.color = UI_STYLE.HEADER_BG
+	$Interface/SkillsPanel/DetailPanel.color = UI_STYLE.DETAIL_BG
+	for title_path in [
+		NodePath("Interface/BackpackPanel/Title"),
+		NodePath("Interface/AttributesPanel/Title"),
+		NodePath("Interface/SkillsPanel/Title"),
+	]:
+		var title := get_node(title_path) as Label
+		title.add_theme_color_override("font_color", UI_STYLE.ACCENT)
+	for hint_path in [
+		NodePath("Interface/BackpackPanel/HintText"),
+		NodePath("Interface/AttributesPanel/HintText"),
+		NodePath("Interface/SkillsPanel/HintText"),
+	]:
+		var hint := get_node(hint_path) as Label
+		hint.add_theme_color_override("font_color", UI_STYLE.TEXT_MUTED)
+	_save_status_text.add_theme_color_override("font_color", UI_STYLE.TEXT_SUCCESS)
+	_return_status_text.add_theme_color_override("font_color", UI_STYLE.TEXT_WARNING)
+	_backpack_feedback_text.add_theme_color_override("font_color", UI_STYLE.TEXT_WARNING)
+	_skills_feedback_text.add_theme_color_override("font_color", UI_STYLE.TEXT_WARNING)
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_pressed():
 		return
@@ -303,6 +356,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.is_action_pressed("toggle_attributes"):
 			if not echoed:
 				_set_attributes_panel_visible(true)
+		elif event.is_action_pressed("toggle_skills"):
+			if not echoed:
+				_set_skills_panel_visible(true)
 		elif event.is_action_pressed("light_attack"):
 			if not echoed:
 				_equip_selected_backpack_item()
@@ -326,6 +382,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.is_action_pressed("toggle_backpack"):
 			if not echoed:
 				_set_backpack_panel_visible(true)
+		elif event.is_action_pressed("toggle_skills"):
+			if not echoed:
+				_set_skills_panel_visible(true)
 		elif event.is_action_pressed("light_attack"):
 			if not echoed:
 				_unequip_selected_slot()
@@ -335,11 +394,39 @@ func _unhandled_input(event: InputEvent) -> void:
 			_move_equipment_selection(1)
 		get_viewport().set_input_as_handled()
 		return
+	if _skills_panel.visible:
+		if event.is_action_pressed("ui_cancel") or event.is_action_pressed("toggle_skills"):
+			if not echoed:
+				_set_skills_panel_visible(false)
+		elif event.is_action_pressed("toggle_backpack"):
+			if not echoed:
+				_set_backpack_panel_visible(true)
+		elif event.is_action_pressed("toggle_attributes"):
+			if not echoed:
+				_set_attributes_panel_visible(true)
+		elif event.is_action_pressed("light_attack"):
+			if not echoed:
+				_increase_selected_skill_rank()
+		elif event.is_action_pressed("skill_slot_1"):
+			if not echoed:
+				_assign_selected_skill_to_slot(0)
+		elif event.is_action_pressed("skill_slot_2"):
+			if not echoed:
+				_assign_selected_skill_to_slot(1)
+		elif event.is_action_pressed("interact_up"):
+			_move_skill_selection(-1)
+		elif event.is_action_pressed("interact_down"):
+			_move_skill_selection(1)
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("toggle_attributes") and not echoed:
 		_set_attributes_panel_visible(true)
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("toggle_backpack") and not echoed:
 		_set_backpack_panel_visible(true)
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("toggle_skills") and not echoed:
+		_set_skills_panel_visible(true)
 		get_viewport().set_input_as_handled()
 
 
@@ -347,6 +434,7 @@ func _set_backpack_panel_visible(visible: bool) -> void:
 	if visible:
 		_attributes_panel.visible = false
 		_hovered_equipment_slot = &""
+		_skills_panel.visible = false
 		_backpack_panel.visible = true
 		_backpack_feedback_text.text = ""
 		_update_backpack_panel()
@@ -362,6 +450,7 @@ func _set_attributes_panel_visible(visible: bool) -> void:
 		_cancel_discard()
 		_backpack_panel.visible = false
 		_hovered_backpack_instance_id = ""
+		_skills_panel.visible = false
 		_attributes_panel.visible = true
 		if not EquipmentSlot.is_valid(_selected_equipment_slot):
 			_selected_equipment_slot = EquipmentSlot.ALL[0]
@@ -373,8 +462,195 @@ func _set_attributes_panel_visible(visible: bool) -> void:
 	_update_gameplay_input_block()
 
 
+func _set_skills_panel_visible(visible: bool) -> void:
+	if visible:
+		_cancel_discard()
+		_backpack_panel.visible = false
+		_hovered_backpack_instance_id = ""
+		_attributes_panel.visible = false
+		_hovered_equipment_slot = &""
+		_skills_panel.visible = true
+		_skills_feedback_text.text = ""
+		_update_skills_panel()
+	else:
+		_skills_panel.visible = false
+	_update_gameplay_input_block()
+
+
 func _update_gameplay_input_block() -> void:
-	_player.set_gameplay_input_blocked(_backpack_panel.visible or _attributes_panel.visible)
+	_player.set_gameplay_input_blocked(
+		_backpack_panel.visible
+		or _attributes_panel.visible
+		or _skills_panel.visible
+	)
+
+
+func _update_skills_panel() -> void:
+	var previous_id := _selected_skill_id
+	for child in _skills_list.get_children():
+		_skills_list.remove_child(child)
+		child.queue_free()
+	_skill_buttons_by_id.clear()
+	_profession_skills = _player.get_profession_skills()
+	_skills_empty_text.visible = _profession_skills.is_empty()
+	if _find_skill_index(previous_id) >= 0:
+		_selected_skill_id = previous_id
+	elif _profession_skills.is_empty():
+		_selected_skill_id = &""
+	else:
+		_selected_skill_id = _profession_skills[0].id
+	_skills_points_text.text = "职业：%s    角色等级：%d    剩余技能点：%d" % [
+		_player.get_profession_name(),
+		_player.get_level(),
+		_player.get_skill_points(),
+	]
+	for definition in _profession_skills:
+		var row := Button.new()
+		var rank := _player.get_skill_rank(definition.id)
+		row.custom_minimum_size = Vector2(400.0, 54.0)
+		row.focus_mode = Control.FOCUS_NONE
+		row.text = "%s    %s    Lv.%d / %d" % [
+			definition.display_name,
+			_skill_category_display_name(definition),
+			rank,
+			definition.get_maximum_rank(),
+		]
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.set_meta(&"skill_id", definition.id)
+		UI_STYLE.apply_runtime_row(
+			row,
+			definition.id == _selected_skill_id
+		)
+		row.pressed.connect(_on_skill_pressed.bind(definition.id))
+		_skills_list.add_child(row)
+		_skill_buttons_by_id[definition.id] = row
+	_update_skill_detail()
+	_update_skill_quickbar_text()
+	_scroll_selected_skill.call_deferred()
+
+
+func _find_skill_index(skill_id: StringName) -> int:
+	if skill_id == &"":
+		return -1
+	for index in _profession_skills.size():
+		if _profession_skills[index].id == skill_id:
+			return index
+	return -1
+
+
+func _move_skill_selection(direction: int) -> void:
+	if _profession_skills.is_empty():
+		return
+	var index := _find_skill_index(_selected_skill_id)
+	index = 0 if index < 0 else clampi(index + direction, 0, _profession_skills.size() - 1)
+	_selected_skill_id = _profession_skills[index].id
+	_refresh_skill_selection()
+
+
+func _on_skill_pressed(skill_id: StringName) -> void:
+	if _find_skill_index(skill_id) < 0:
+		return
+	_selected_skill_id = skill_id
+	_refresh_skill_selection()
+
+
+func _refresh_skill_selection() -> void:
+	for skill_id in _skill_buttons_by_id:
+		var row := _skill_buttons_by_id[skill_id] as Button
+		if row != null:
+			UI_STYLE.apply_runtime_row(
+				row,
+				skill_id == _selected_skill_id
+			)
+	_update_skill_detail()
+	_scroll_selected_skill.call_deferred()
+
+
+func _scroll_selected_skill() -> void:
+	var row := _skill_buttons_by_id.get(_selected_skill_id) as Control
+	if row != null and is_instance_valid(row):
+		_skills_scroll.ensure_control_visible(row)
+
+
+func _increase_selected_skill_rank() -> void:
+	if _selected_skill_id == &"":
+		_skills_feedback_text.text = "没有可加点的技能"
+		return
+	var result := _player.increase_skill_rank(_selected_skill_id)
+	_update_skills_panel()
+	_skills_feedback_text.text = String(result.get("message", "加点失败"))
+
+
+func _assign_selected_skill_to_slot(slot_index: int) -> void:
+	if _selected_skill_id == &"":
+		_skills_feedback_text.text = "没有可配置的技能"
+		return
+	var result := _player.set_skill_quickbar_slot(slot_index, _selected_skill_id)
+	_update_skills_panel()
+	_skills_feedback_text.text = "%s：快捷栏 %d" % [
+		String(result.get("message", "配置失败")),
+		slot_index + 1,
+	]
+
+
+func _update_skill_detail() -> void:
+	var definition := DefinitionRegistry.get_skill(_selected_skill_id)
+	if definition == null or not definition.is_available_to_profession(_player.get_profession_id()):
+		_skills_detail_text.text = "选择技能查看详情"
+		return
+	var rank := _player.get_skill_rank(definition.id)
+	var status := _player.get_skill_rank_up_status(definition.id)
+	var next_rank := mini(rank + 1, definition.get_maximum_rank())
+	var lines: Array[String] = [
+		definition.display_name,
+		definition.description,
+		"",
+		"类型：%s" % _skill_category_display_name(definition),
+		"需求角色等级：%d" % definition.required_level,
+		"当前等级：%d / %d" % [rank, definition.get_maximum_rank()],
+		"当前效果：%s" % (definition.effect_text_at_rank(rank) if rank > 0 else "未学习，无效果"),
+	]
+	if rank < definition.get_maximum_rank():
+		lines.append("下一级效果：%s" % definition.effect_text_at_rank(next_rank))
+	if definition.is_active():
+		lines.append("施放环境：%s" % _skill_environment_text(definition))
+		lines.append("冷却：%.1f 秒" % definition.cooldown)
+		if not definition.required_weapon_types.is_empty():
+			var weapon_names: Array[String] = []
+			for weapon_type in definition.required_weapon_types:
+				weapon_names.append(_weapon_type_display_name(weapon_type))
+			lines.append("武器要求：%s" % " / ".join(weapon_names))
+	lines.append("")
+	lines.append("加点状态：%s" % String(status.get("message", "无法加点")))
+	_skills_detail_text.text = "\n".join(lines)
+
+
+func _update_skill_quickbar_text() -> void:
+	var slots := _player.get_skill_quickbar()
+	var parts: Array[String] = []
+	for index in slots.size():
+		var definition := DefinitionRegistry.get_skill(slots[index])
+		parts.append("%d %s" % [index + 1, definition.display_name if definition != null else "空"])
+	_skills_quickbar_text.text = "快捷栏：%s" % "    ".join(parts)
+
+
+func _skill_category_display_name(definition: SkillDefinition) -> String:
+	match definition.category:
+		SkillCategory.NORMAL_OFFENSIVE:
+			return "普通攻击技能"
+		SkillCategory.OFFENSIVE_ULTIMATE:
+			return "攻击大招"
+		SkillCategory.BASIC_STAT_PASSIVE:
+			return "基础属性被动"
+	return "未知类型"
+
+
+func _skill_environment_text(definition: SkillDefinition) -> String:
+	if definition.allow_ground and definition.allow_air:
+		return "地面 / 空中"
+	if definition.allow_ground:
+		return "仅地面"
+	return "仅空中"
 
 
 func _setup_equipment_rows() -> void:
@@ -392,6 +668,7 @@ func _setup_equipment_rows() -> void:
 		var row := _equipment_list.get_node(String(row_names[index])) as Button
 		_equipment_rows[slot] = row
 		row.set_meta(&"equipment_slot", slot)
+		UI_STYLE.apply_runtime_row(row, false)
 		row.mouse_entered.connect(_on_equipment_row_entered.bind(slot))
 		row.mouse_exited.connect(_on_equipment_row_exited.bind(slot))
 		row.pressed.connect(_on_equipment_row_pressed.bind(slot))
@@ -424,7 +701,11 @@ func _update_equipment_panel() -> void:
 		var item_name := "[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()] if item != null else "未装备"
 		row.text = "%s：%s" % [EquipmentSlot.display_name(slot), item_name]
 		row.disabled = false
-		row.add_theme_color_override("font_color", SELECTED_COLOR if slot == _selected_equipment_slot else Color.WHITE)
+		UI_STYLE.apply_runtime_row(
+			row,
+			slot == _selected_equipment_slot,
+			EquipmentQuality.color(item.quality) if item != null else UI_STYLE.TEXT_MUTED
+		)
 	_show_active_equipment_detail()
 
 
@@ -624,10 +905,11 @@ func _update_backpack_panel() -> void:
 		row.focus_mode = Control.FOCUS_NONE
 		row.text = _format_backpack_slot_text(item)
 		row.tooltip_text = "[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
-		row.add_theme_color_override("font_color", EquipmentQuality.color(item.quality))
-		row.add_theme_color_override("font_outline_color", SELECTED_COLOR)
-		row.add_theme_constant_override("outline_size", 3 if item.instance_id == _selected_backpack_instance_id else 0)
-		row.add_theme_font_size_override("font_size", 11)
+		UI_STYLE.apply_backpack_slot(
+			row,
+			item.instance_id == _selected_backpack_instance_id,
+			EquipmentQuality.color(item.quality)
+		)
 		row.alignment = HORIZONTAL_ALIGNMENT_CENTER
 		row.set_meta(&"equipment_instance_id", item.instance_id)
 		row.mouse_entered.connect(_on_backpack_item_entered.bind(item.instance_id))
@@ -696,8 +978,13 @@ func _move_backpack_selection(direction: Vector2i) -> void:
 func _refresh_backpack_selection() -> void:
 	for instance_id in _backpack_buttons_by_id:
 		var row := _backpack_buttons_by_id[instance_id] as Button
-		if row != null:
-			row.add_theme_constant_override("outline_size", 3 if instance_id == _selected_backpack_instance_id else 0)
+		var item := _player.get_equipment_instance(String(instance_id))
+		if row != null and item != null:
+			UI_STYLE.apply_backpack_slot(
+				row,
+				instance_id == _selected_backpack_instance_id,
+				EquipmentQuality.color(item.quality)
+			)
 	_show_active_backpack_detail()
 	_scroll_selected_backpack_item.call_deferred()
 

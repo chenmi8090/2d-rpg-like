@@ -1,5 +1,7 @@
 extends Control
 
+const UI_STYLE := preload("res://scripts/ui/ui_style.gd")
+
 @onready var _slot_label: Label = $Margin/Layout/SlotLabel
 @onready var _name_input: LineEdit = $Margin/Layout/MainColumns/Form/Margin/Layout/NameInput
 @onready var _profession_options: OptionButton = $Margin/Layout/MainColumns/Form/Margin/Layout/ProfessionOptions
@@ -21,6 +23,7 @@ var _creation_draft := {
 
 
 func _ready() -> void:
+	_apply_ui_foundation()
 	_active_slot = GameSession.get_pending_creation_slot()
 	if _active_slot < 0 or _active_slot >= GameSession.SLOT_COUNT:
 		GameSession.return_to_character_select.call_deferred()
@@ -43,10 +46,41 @@ func _ready() -> void:
 	_name_input.grab_focus()
 
 
+func _apply_ui_foundation() -> void:
+	$Background.color = UI_STYLE.PAGE_BG
+	$Accent.color = UI_STYLE.ACCENT
+	$Margin/Layout/Title.add_theme_color_override("font_color", UI_STYLE.ACCENT)
+	_slot_label.add_theme_color_override("font_color", UI_STYLE.TEXT_MUTED)
+	UI_STYLE.apply_panel_container($Margin/Layout/MainColumns/Form, true)
+	UI_STYLE.apply_panel_container(
+		$Margin/Layout/MainColumns/FutureOptions/AppearancePanel
+	)
+	UI_STYLE.apply_panel_container(
+		$Margin/Layout/MainColumns/FutureOptions/LoadoutPanel
+	)
+	UI_STYLE.apply_line_edit(_name_input)
+	UI_STYLE.apply_option_button(_profession_options)
+	UI_STYLE.apply_button(_confirm_button, &"primary")
+	UI_STYLE.apply_button($Margin/Layout/Buttons/Cancel)
+	_profession_detail.add_theme_color_override("font_color", UI_STYLE.TEXT_PRIMARY)
+	_appearance_placeholder.add_theme_color_override("font_color", UI_STYLE.TEXT_MUTED)
+	_loadout_placeholder.add_theme_color_override("font_color", UI_STYLE.TEXT_MUTED)
+	for title_path in [
+		NodePath("Margin/Layout/MainColumns/FutureOptions/AppearancePanel/Margin/Layout/Title"),
+		NodePath("Margin/Layout/MainColumns/FutureOptions/LoadoutPanel/Margin/Layout/Title"),
+	]:
+		var title := get_node(title_path) as Label
+		title.add_theme_color_override("font_color", UI_STYLE.TEXT_MUTED)
+	$Margin/Layout/MainColumns/FutureOptions/AppearancePanel/Margin/Layout/Preview.color = \
+		UI_STYLE.SLOT_BG
+
+
 func _on_name_changed(value: String) -> void:
 	_creation_draft.name = value
 	var result := GameSession.validate_character_name(value)
 	_feedback.text = "" if result.ok or value.is_empty() else String(result.message)
+	if not _feedback.text.is_empty():
+		UI_STYLE.apply_message(_feedback, true)
 	_confirm_button.disabled = not result.ok or _profession_options.selected < 0
 
 
@@ -81,10 +115,12 @@ func _on_create_confirmed() -> void:
 	var profession_index := _profession_options.selected
 	if profession_index < 0 or profession_index >= _profession_definitions.size():
 		_feedback.text = "请选择职业"
+		UI_STYLE.apply_message(_feedback, true)
 		return
 	var result := GameSession.create_character(_active_slot, _name_input.text, _profession_definitions[profession_index].id)
 	if not result.ok:
 		_feedback.text = String(result.message)
+		UI_STYLE.apply_message(_feedback, true)
 		return
 	_release_focus()
 	GameSession.return_to_character_select()

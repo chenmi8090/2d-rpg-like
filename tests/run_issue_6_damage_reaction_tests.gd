@@ -43,6 +43,7 @@ func _run() -> void:
 	_ensure_game_session()
 	await _test_low_damage_reaction_does_not_interrupt_or_knock_back()
 	await _test_heavy_damage_reaction_has_capped_knockback_and_protection()
+	await _test_forced_minimum_knockback_metadata()
 	await _test_heavy_reaction_from_critical_metadata()
 	await _test_airborne_and_sprint_context_thresholds()
 	await _test_enemy_attack_metadata_real_ids_noncritical()
@@ -107,6 +108,34 @@ func _test_heavy_damage_reaction_has_capped_knockback_and_protection() -> void:
 	player.set("_invulnerability_timer", 0.0)
 	_expect(player.receive_hit(1, player, 1.0, {"is_critical": true}), "重反应保护过期后可再次接受暴击命中")
 	_expect(player.get_last_hit_reaction() == Player.HitReaction.HEAVY, "重反应保护过期后暴击再次触发重反应")
+	await _destroy_world()
+
+
+func _test_forced_minimum_knockback_metadata() -> void:
+	var player := await _create_grounded_player()
+	player.damage_knockback_speed = 20.0
+	player.heavy_hit_knockback_cap = 180.0
+	_expect(
+		player.receive_hit(1, player, 1.0, {
+			"force_knockback": true,
+			"minimum_knockback_speed": 150.0,
+			"is_critical": false,
+		}),
+		"强制击退元数据命中可被玩家接受"
+	)
+	_expect(player.get_last_hit_reaction() == Player.HitReaction.HEAVY, "强制击退元数据触发重受击")
+	_expect(is_equal_approx(player.velocity.x, 150.0), "玩家重受击采用元数据声明的最小击退速度")
+	await _destroy_world()
+
+	player = await _create_grounded_player()
+	player.damage_knockback_speed = 20.0
+	player.heavy_hit_knockback_cap = 120.0
+	player.receive_hit(1, player, -1.0, {
+		"force_knockback": true,
+		"minimum_knockback_speed": 150.0,
+		"is_critical": false,
+	})
+	_expect(is_equal_approx(player.velocity.x, -120.0), "元数据最小击退仍遵守玩家重受击速度上限")
 	await _destroy_world()
 
 

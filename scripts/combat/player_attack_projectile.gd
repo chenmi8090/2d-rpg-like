@@ -41,6 +41,23 @@ func initialize(profile: PlayerBasicAttackProfile, damage: int, source: Node, di
 	queue_redraw()
 
 
+func initialize_skill(skill: SkillDefinition, damage: int, source: Node, direction: float, metadata: Dictionary = {}) -> void:
+	_damage = maxi(damage, 1)
+	_source = source
+	_direction = signf(direction) if direction != 0.0 else 1.0
+	_speed = maxf(skill.projectile_speed, 1.0)
+	_lifetime = maxf(skill.projectile_lifetime, 0.01)
+	_max_distance = maxf(skill.projectile_maximum_distance, 1.0)
+	_visual_size = skill.projectile_size
+	_color = skill.projectile_color
+	_metadata = metadata.duplicate(true)
+	if _collision.shape is RectangleShape2D:
+		_collision.shape = _collision.shape.duplicate()
+		(_collision.shape as RectangleShape2D).size = Vector2(maxf(_visual_size.x, 1.0), maxf(_visual_size.y, 1.0))
+	_active = true
+	queue_redraw()
+
+
 func _physics_process(delta: float) -> void:
 	if not _active:
 		return

@@ -15,4 +15,5 @@ script = ExtResource("1_profession")
 id = &"traveler"
 display_name = "旅人"
 allowed_weapon_types = Array[StringName]([&"sword", &"staff"])
+skill_ids = Array[StringName]([&"blade_wave", &"power_strike", &"traveler_vitality"])
 starting_equipment = Array[ExtResource("9_equipment")]([ExtResource("2_sword"), ExtResource("3_cap"), ExtResource("4_coat"), ExtResource("5_trousers"), ExtResource("6_gloves"), ExtResource("7_boots"), ExtResource("8_ring")])

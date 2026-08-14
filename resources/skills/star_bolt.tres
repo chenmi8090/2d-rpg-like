@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="SkillDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/skills/skill_definition.gd" id="1_skill"]
+
+[resource]
+script = ExtResource("1_skill")
+id = &"star_bolt"
+display_name = "星辉弹"
+description = "发射一枚可在空中释放的星辉弹。"
+kind = 0
+category = &"normal_offensive"
+profession_ids = Array[StringName]([&"star_seeker"])
+required_level = 2
+required_weapon_types = Array[StringName]([&"staff"])
+allow_ground = true
+allow_air = true
+startup_time = 0.15
+active_time = 0.1
+recovery_time = 0.24
+cooldown = 1.0
+delivery = 1
+damage_stat = 1
+base_damage_multiplier = 0.75
+damage_multiplier_per_rank = 0.14
+projectile_speed = 650.0
+projectile_maximum_distance = 760.0
+projectile_lifetime = 1.5

@@ -5,6 +5,8 @@ extends Resource
 @export_range(1, 200, 1) var maximum_level := 100
 @export_range(1, 200, 1) var starting_level := 1
 @export_range(0, 1000000, 1) var starting_experience := 0
+@export_range(0, 999, 1) var starting_skill_points := 0
+@export_range(0, 99, 1) var skill_points_per_level := 1
 
 @export_category("Starting Attributes")
 @export_range(0, 999, 1) var starting_strength := 3

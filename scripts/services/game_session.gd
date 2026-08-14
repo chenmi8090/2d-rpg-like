@@ -5,7 +5,7 @@ signal active_profile_changed(profile_id: String)
 signal save_status_changed(message: String, failed: bool)
 signal return_countdown_changed(message: String, active: bool)
 
-const SAVE_VERSION := 2
+const SAVE_VERSION := 4
 const SLOT_COUNT := 3
 const DEFAULT_SAVE_ROOT := "user://profiles"
 const CHARACTER_SELECT_SCENE := "res://scenes/ui/character_select.tscn"
@@ -21,6 +21,9 @@ const GAMEPLAY_INPUT_ACTIONS: Array[StringName] = [
 	&"heavy_attack",
 	&"toggle_attributes",
 	&"toggle_backpack",
+	&"toggle_skills",
+	&"skill_slot_1",
+	&"skill_slot_2",
 	&"reset",
 ]
 const DEFAULT_AREA_ID := &"test_level"
@@ -240,6 +243,11 @@ func create_character(slot_index: int, raw_name: String, profession_id: StringNa
 			"experience": progression.starting_experience if progression != null else 0,
 		},
 		"materials": {"stardust_fragment": 0},
+		"skills": {
+			"unspent_points": progression.starting_skill_points if progression != null else 0,
+			"ranks": {},
+		},
+		"skill_quickbar": {"slots": ["", ""]},
 		"equipment": equipment,
 		"location": {"area_id": String(DEFAULT_AREA_ID), "safe_spawn_id": String(DEFAULT_SPAWN_ID)},
 		"meta": {"last_save_reason": "creation"},
@@ -367,6 +375,8 @@ func save_now(reason: StringName = &"manual") -> Dictionary:
 		_active_profile["progression"] = snapshot.progression
 		_active_profile["materials"] = snapshot.materials
 		_active_profile["equipment"] = snapshot.equipment
+		_active_profile["skills"] = snapshot.skills
+		_active_profile["skill_quickbar"] = snapshot.skill_quickbar
 	_accumulate_play_time()
 	var now := int(Time.get_unix_time_from_system())
 	_active_profile["updated_at"] = now
@@ -446,6 +456,8 @@ func _connect_player_signals(player: Player) -> void:
 		player.equipment_changed.connect(_on_equipment_changed)
 	if not player.equipment_inventory_changed.is_connected(_on_inventory_changed):
 		player.equipment_inventory_changed.connect(_on_inventory_changed)
+	if not player.skills_changed.is_connected(_on_skills_changed):
+		player.skills_changed.connect(_on_skills_changed)
 	if not player.respawned.is_connected(_on_player_respawned):
 		player.respawned.connect(_on_player_respawned)
 	if not player.health_changed.is_connected(_on_player_health_changed):
@@ -460,6 +472,7 @@ func _disconnect_player_signals() -> void:
 		["progression_changed", _on_progression_changed],
 		["equipment_changed", _on_equipment_changed],
 		["equipment_inventory_changed", _on_inventory_changed],
+		["skills_changed", _on_skills_changed],
 		["respawned", _on_player_respawned],
 		["health_changed", _on_player_health_changed],
 	]
@@ -483,6 +496,10 @@ func _on_equipment_changed() -> void:
 
 func _on_inventory_changed() -> void:
 	request_autosave(&"inventory")
+
+
+func _on_skills_changed() -> void:
+	request_autosave(&"skills")
 
 
 func _on_player_respawned(_reason: Player.RespawnReason) -> void:
@@ -555,6 +572,18 @@ func _normalize_profile(raw: Variant) -> Dictionary:
 	profile["progression"] = _normalize_progression(profile.get("progression", {}))
 	profile["materials"] = _normalize_materials(profile.get("materials", {}))
 	profile["equipment"] = _normalize_equipment(profile.get("equipment", {}), profession_id, version)
+	profile["skills"] = _normalize_skills(
+		profile.get("skills", {}),
+		profession_id,
+		int((profile.get("progression", {}) as Dictionary).get("level", 1)),
+		version
+	)
+	profile["skill_quickbar"] = _normalize_skill_quickbar(
+		profile.get("skill_quickbar", {}),
+		profession_id,
+		profile.skills,
+		version
+	)
 	profile["location"] = _normalize_location(profile.get("location", {}))
 	profile["created_at"] = int(profile.get("created_at", 0))
 	profile["updated_at"] = int(profile.get("updated_at", profile.created_at))
@@ -570,6 +599,76 @@ func _normalize_progression(raw: Variant) -> Dictionary:
 func _normalize_materials(raw: Variant) -> Dictionary:
 	var source := raw as Dictionary if raw is Dictionary else {}
 	return {"stardust_fragment": maxi(int(source.get("stardust_fragment", 0)), 0)}
+
+
+func _normalize_skills(
+	raw: Variant,
+	profession_id: StringName,
+	character_level: int,
+	source_version: int
+) -> Dictionary:
+	var preserve_existing_skills := source_version >= 3
+	var source := raw as Dictionary if preserve_existing_skills and raw is Dictionary else {}
+	var ranks: Dictionary = {}
+	var spent_points := 0
+	var raw_ranks := source.get("ranks", {}) as Dictionary
+	for raw_skill_id in raw_ranks:
+		var skill_id := StringName(String(raw_skill_id))
+		var definition := DefinitionRegistry.get_skill(skill_id)
+		if definition == null or not definition.is_available_to_profession(profession_id):
+			continue
+		var rank := clampi(int(raw_ranks[raw_skill_id]), 0, definition.get_maximum_rank())
+		if rank > 0:
+			ranks[String(skill_id)] = rank
+			spent_points += rank
+	var unspent_points := maxi(int(source.get("unspent_points", 0)), 0)
+	if source_version < SAVE_VERSION:
+		var progression := load(
+			"res://resources/progression/default_player_progression.tres"
+		) as PlayerProgressionDefinition
+		var starting_level := progression.starting_level if progression != null else 1
+		var starting_points := progression.starting_skill_points if progression != null else 0
+		var points_per_level := progression.skill_points_per_level if progression != null else 1
+		var earned_points := starting_points + maxi(
+			character_level - starting_level,
+			0
+		) * points_per_level
+		var missing_points := maxi(earned_points - unspent_points - spent_points, 0)
+		unspent_points += missing_points
+	return {
+		"unspent_points": unspent_points,
+		"ranks": ranks,
+	}
+
+
+func _normalize_skill_quickbar(
+	raw: Variant,
+	profession_id: StringName,
+	skills: Dictionary,
+	source_version: int
+) -> Dictionary:
+	var default_slots := ["", ""]
+	if source_version < 3:
+		return {"slots": default_slots}
+	var source := raw as Dictionary if raw is Dictionary else {}
+	var raw_slots := source.get("slots", []) as Array
+	var slots: Array[String] = []
+	var ranks := skills.get("ranks", {}) as Dictionary
+	for raw_skill_id in raw_slots:
+		var skill_id := StringName(String(raw_skill_id))
+		var definition := DefinitionRegistry.get_skill(skill_id)
+		if (
+			definition == null
+			or not definition.is_active()
+			or not definition.is_available_to_profession(profession_id)
+			or int(ranks.get(String(skill_id), 0)) <= 0
+		):
+			slots.append("")
+		else:
+			slots.append(String(skill_id))
+	if slots.size() < default_slots.size():
+		slots.resize(default_slots.size())
+	return {"slots": slots}
 
 
 func _normalize_equipment(raw: Variant, profession_id: StringName, source_version := SAVE_VERSION) -> Dictionary:
@@ -594,7 +693,8 @@ func _normalize_equipment(raw: Variant, profession_id: StringName, source_versio
 	var raw_equipped := source.get("equipped", {}) as Dictionary
 	for slot in EquipmentSlot.ALL:
 		var instance_id := String(raw_equipped.get(String(slot), ""))
-		var snapshot := valid_ids.get(instance_id) as Dictionary
+		var snapshot_value: Variant = valid_ids.get(instance_id, {})
+		var snapshot := snapshot_value as Dictionary if snapshot_value is Dictionary else {}
 		if snapshot.is_empty():
 			continue
 		var definition := get_equipment_definition(StringName(String(snapshot.definition_id)))

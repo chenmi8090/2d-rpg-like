@@ -15,4 +15,5 @@ script = ExtResource("1_profession")
 id = &"star_seeker"
 display_name = "观星者"
 allowed_weapon_types = Array[StringName]([&"staff"])
+skill_ids = Array[StringName]([&"star_bolt", &"meteor_burst", &"astral_spirit"])
 starting_equipment = Array[ExtResource("9_equipment")]([ExtResource("2_staff"), ExtResource("3_cap"), ExtResource("4_coat"), ExtResource("5_trousers"), ExtResource("6_gloves"), ExtResource("7_boots"), ExtResource("8_ring")])

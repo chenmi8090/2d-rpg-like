@@ -9,6 +9,7 @@ signal level_up(level: int, levels_gained: int)
 signal stats_changed
 signal equipment_changed
 signal equipment_inventory_changed
+signal skills_changed
 signal equipment_equip_failed(message: String)
 signal attack_started(attack_type: int, profile_id: StringName)
 signal attack_phase_changed(attack_type: int, phase: int)
@@ -23,6 +24,7 @@ enum RespawnReason {
 enum AttackType {
 	LIGHT,
 	HEAVY,
+	SKILL,
 }
 
 enum AttackPhase {
@@ -54,6 +56,8 @@ const DROP_THROUGH_TIME := 0.2
 const DROP_THROUGH_SPEED := 100.0
 const STARDUST_FRAGMENT_ID := &"stardust_fragment"
 const EQUIPMENT_MODIFIER_SOURCE := &"equipment"
+const PASSIVE_SKILL_MODIFIER_SOURCE := &"passive_skills"
+const DEFAULT_SKILL_QUICKBAR_SIZE := 2
 const PLAYER_ATTACK_PROJECTILE_SCENE := preload("res://scenes/combat/player_attack_projectile.tscn")
 
 @export var move_speed := 280.0
@@ -108,6 +112,9 @@ var _current_attack_profile: PlayerBasicAttackProfile
 var _current_attack_damage := 1
 var _current_attack_projectile_spawned := false
 var _current_attack_hit_confirmed := false
+var _current_skill_definition: SkillDefinition
+var _current_skill_rank := 0
+var _skill_cooldowns: Dictionary = {}
 var _air_attack_consumed := false
 var _attack_started_on_floor := false
 var _next_light_attack_time := 0.0
@@ -126,6 +133,8 @@ var _death_respawn_timer := 0.0
 var _spawn_position := Vector2.ZERO
 var _stardust_fragments := 0
 var _stats := PlayerStats.new()
+var _skill_progress := PlayerSkillProgress.new()
+var _skill_quickbar: Array[StringName] = []
 var _equipped_items: Dictionary = {}
 var _equipment_inventory: Array[EquipmentInstance] = []
 var _next_equipment_instance_serial := 1
@@ -149,6 +158,11 @@ func _ready() -> void:
 		_attack_collision.shape = _attack_collision.shape.duplicate()
 	_attack_hitbox.hit_confirmed.connect(_on_attack_hit_confirmed)
 	_stats.initialize(progression_definition)
+	_skill_progress.initialize(
+		progression_definition.starting_skill_points
+		if progression_definition != null else 0
+	)
+	_skill_quickbar = _default_skill_quickbar()
 	_apply_starting_equipment()
 	_stats.rng.randomize()
 	_spawn_position = global_position
@@ -202,6 +216,7 @@ func _physics_process(delta: float) -> void:
 	_update_drop_through(delta)
 	_update_jump_timers(delta, was_on_floor)
 	_update_sprint_input()
+	_handle_skill_input()
 	_handle_attack_input()
 	attack_started_on_floor_before_move = current_state == State.ATTACK and _attack_started_on_floor
 	_update_attack(delta)
@@ -322,9 +337,12 @@ func _was_true_sprint_into_hit(hit_direction: float) -> bool:
 	return signf(_pre_hit_velocity.x) == -incoming_direction
 
 
-func _apply_hit_reaction(reaction: HitReaction, hit_direction: float, _metadata: Dictionary) -> void:
+func _apply_hit_reaction(reaction: HitReaction, hit_direction: float, metadata: Dictionary) -> void:
 	if reaction == HitReaction.HEAVY:
-		var knockback_speed := minf(maxf(damage_knockback_speed, 0.0), heavy_hit_knockback_cap)
+		var knockback_speed := minf(
+			HitReactionRules.resolve_knockback_speed(damage_knockback_speed, metadata),
+			heavy_hit_knockback_cap
+		)
 		_hit_stun_timer = maxf(heavy_hit_stun_time, hit_stun_time)
 		_visual.show_hurt_feedback(_hit_stun_timer, 1.0)
 		velocity.x = signf(hit_direction) * knockback_speed
@@ -450,6 +468,133 @@ func get_profession_id() -> StringName:
 	return profession_definition.id if profession_definition != null else &""
 
 
+func get_skill_points() -> int:
+	return _skill_progress.unspent_points
+
+
+func get_skill_rank(skill_id: StringName) -> int:
+	return _skill_progress.get_rank(skill_id)
+
+
+func get_profession_skills() -> Array[SkillDefinition]:
+	var definitions: Array[SkillDefinition] = []
+	if profession_definition == null:
+		return definitions
+	for skill_id in profession_definition.skill_ids:
+		var definition := DefinitionRegistry.get_skill(skill_id)
+		if definition != null:
+			definitions.append(definition)
+	return definitions
+
+
+func get_skill_rank_up_status(skill_id: StringName) -> Dictionary:
+	return _skill_progress.get_rank_up_status(
+		skill_id,
+		get_profession_id(),
+		get_level()
+	)
+
+
+func increase_skill_rank(skill_id: StringName) -> Dictionary:
+	var old_max := get_max_health()
+	var result := _skill_progress.increase_rank(
+		skill_id,
+		get_profession_id(),
+		get_level()
+	)
+	if not bool(result.get("ok", false)):
+		return result
+	_rebuild_passive_skill_modifiers()
+	_apply_stats_change(old_max)
+	skills_changed.emit()
+	return result
+
+
+func get_skill_quickbar() -> Array[StringName]:
+	return _skill_quickbar.duplicate()
+
+
+func get_skill_cooldown_remaining(skill_id: StringName) -> float:
+	return maxf(float(_skill_cooldowns.get(skill_id, 0.0)) - _elapsed_time, 0.0)
+
+
+func can_cast_skill(skill_id: StringName) -> Dictionary:
+	var definition := DefinitionRegistry.get_skill(skill_id)
+	return _get_skill_cast_status(definition)
+
+
+func cast_skill(skill_id: StringName) -> Dictionary:
+	var definition := DefinitionRegistry.get_skill(skill_id)
+	var status := _get_skill_cast_status(definition)
+	if not bool(status.get("ok", false)):
+		return status
+	_start_skill(definition)
+	return {
+		"ok": true,
+		"message": "技能施放成功",
+		"skill_id": definition.id,
+	}
+
+
+func set_skill_quickbar_slot(slot_index: int, skill_id: StringName) -> Dictionary:
+	if slot_index < 0 or slot_index >= _skill_quickbar.size():
+		return {"ok": false, "message": "技能快捷栏位置无效"}
+	if skill_id == &"":
+		_skill_quickbar[slot_index] = &""
+		skills_changed.emit()
+		return {"ok": true, "message": "快捷栏已清空"}
+	var definition := DefinitionRegistry.get_skill(skill_id)
+	if definition == null or not definition.is_active():
+		return {"ok": false, "message": "只能配置有效的主动技能"}
+	if not definition.is_available_to_profession(get_profession_id()):
+		return {"ok": false, "message": "当前职业无法配置该技能"}
+	if get_skill_rank(skill_id) <= 0:
+		return {"ok": false, "message": "技能尚未学习"}
+	_skill_quickbar[slot_index] = skill_id
+	skills_changed.emit()
+	return {"ok": true, "message": "快捷栏配置成功"}
+
+
+func _default_skill_quickbar() -> Array[StringName]:
+	var slots: Array[StringName] = []
+	slots.resize(DEFAULT_SKILL_QUICKBAR_SIZE)
+	slots.fill(&"")
+	return slots
+
+
+func _load_skill_quickbar(snapshot: Dictionary) -> void:
+	_skill_quickbar = _default_skill_quickbar()
+	var raw_slots := snapshot.get("slots", []) as Array
+	if raw_slots.size() > _skill_quickbar.size():
+		var previous_size := _skill_quickbar.size()
+		_skill_quickbar.resize(raw_slots.size())
+		for index in range(previous_size, _skill_quickbar.size()):
+			_skill_quickbar[index] = &""
+	for index in raw_slots.size():
+		var skill_id := StringName(String(raw_slots[index]))
+		var definition := DefinitionRegistry.get_skill(skill_id)
+		if (
+			definition != null
+			and definition.is_active()
+			and definition.is_available_to_profession(get_profession_id())
+			and get_skill_rank(skill_id) > 0
+		):
+			_skill_quickbar[index] = skill_id
+
+
+func _rebuild_passive_skill_modifiers() -> void:
+	var modifiers: Array[StatModifier] = []
+	for definition in get_profession_skills():
+		if not definition.is_passive():
+			continue
+		var modifier := definition.passive_modifier_at_rank(
+			get_skill_rank(definition.id)
+		)
+		if modifier != null:
+			modifiers.append(modifier)
+	_stats.set_modifier_source(PASSIVE_SKILL_MODIFIER_SOURCE, modifiers)
+
+
 func get_save_snapshot() -> Dictionary:
 	var equipped: Dictionary = {}
 	var instances: Dictionary = {}
@@ -466,6 +611,8 @@ func get_save_snapshot() -> Dictionary:
 		instances[item.instance_id] = item.to_snapshot()
 	return {
 		"progression": {"level": _stats.level, "experience": _stats.experience},
+		"skills": _skill_progress.to_snapshot(),
+		"skill_quickbar": {"slots": _skill_quickbar.duplicate()},
 		"materials": {"stardust_fragment": _stardust_fragments},
 		"equipment": {
 			"next_instance_serial": _next_equipment_instance_serial,
@@ -488,6 +635,12 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	_stats.experience = maxi(int(progression.get("experience", 0)), 0)
 	if _stats.is_max_level():
 		_stats.experience = 0
+	_skill_progress.load_snapshot(
+		profile.get("skills", {}) as Dictionary,
+		profession_id
+	)
+	_load_skill_quickbar(profile.get("skill_quickbar", {}) as Dictionary)
+	_skill_cooldowns.clear()
 	_equipped_items.clear()
 	_equipment_inventory.clear()
 	var equipment := profile.get("equipment", {}) as Dictionary
@@ -513,6 +666,7 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	var materials := profile.get("materials", {}) as Dictionary
 	_stardust_fragments = maxi(int(materials.get("stardust_fragment", 0)), 0)
 	_stats.set_modifier_source(EQUIPMENT_MODIFIER_SOURCE, _equipment_modifiers())
+	_rebuild_passive_skill_modifiers()
 	_cancel_attack()
 	_clear_owned_projectiles()
 	_air_attack_consumed = false
@@ -535,6 +689,7 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	stats_changed.emit()
 	equipment_changed.emit()
 	equipment_inventory_changed.emit()
+	skills_changed.emit()
 	return {"ok": true, "message": ""}
 
 
@@ -861,8 +1016,15 @@ func add_experience(amount: int) -> void:
 	var result := _stats.add_experience(amount)
 	var levels_gained := int(result.levels_gained)
 	if levels_gained > 0:
+		_skill_progress.add_points(
+			levels_gained * (
+				progression_definition.skill_points_per_level
+				if progression_definition != null else 1
+			)
+		)
 		_apply_stats_change(old_max)
 		level_up.emit(_stats.level, levels_gained)
+		skills_changed.emit()
 	_emit_progression_changed()
 
 
@@ -916,6 +1078,61 @@ func _update_sprint_input() -> void:
 	var direction := _movement_axis()
 	if _sprint_direction != 0.0 and direction != _sprint_direction:
 		_sprint_direction = 0.0
+
+
+func _handle_skill_input() -> void:
+	if current_state == State.CROUCH or current_state == State.ATTACK:
+		return
+	for slot_index in _skill_quickbar.size():
+		var action := StringName("skill_slot_%d" % (slot_index + 1))
+		if not InputMap.has_action(action) or not _action_just_pressed(action):
+			continue
+		_cast_skill_quickbar_slot(slot_index)
+		return
+
+
+func _cast_skill_quickbar_slot(slot_index: int) -> Dictionary:
+	if slot_index < 0 or slot_index >= _skill_quickbar.size():
+		return {"ok": false, "message": "技能快捷栏位置无效"}
+	var skill_id := _skill_quickbar[slot_index]
+	if skill_id == &"":
+		return {"ok": false, "message": "技能快捷栏为空"}
+	return cast_skill(skill_id)
+
+
+func _get_skill_cast_status(definition: SkillDefinition) -> Dictionary:
+	if definition == null or not definition.is_active():
+		return {"ok": false, "message": "主动技能定义不存在"}
+	if not definition.is_available_to_profession(get_profession_id()):
+		return {"ok": false, "message": "当前职业无法使用该技能"}
+	if get_skill_rank(definition.id) <= 0:
+		return {"ok": false, "message": "技能尚未学习"}
+	if current_state == State.CROUCH or current_state == State.ATTACK:
+		return {"ok": false, "message": "当前状态无法施放技能"}
+	if current_state == State.HIT or current_state == State.DEAD:
+		return {"ok": false, "message": "当前状态无法施放技能"}
+	if not _equipped_weapon_satisfies_skill(definition):
+		return {"ok": false, "message": "当前武器无法施放该技能"}
+	if is_on_floor():
+		if not definition.allow_ground:
+			return {"ok": false, "message": "该技能不能在地面施放"}
+	else:
+		if current_state != State.JUMP and current_state != State.FALL:
+			return {"ok": false, "message": "当前状态无法施放技能"}
+		if not definition.allow_air:
+			return {"ok": false, "message": "该技能不能在空中施放"}
+		if _air_attack_consumed:
+			return {"ok": false, "message": "本次滞空已使用过攻击"}
+	if get_skill_cooldown_remaining(definition.id) > 0.0:
+		return {"ok": false, "message": "技能冷却中"}
+	return {"ok": true, "message": "可以施放"}
+
+
+func _equipped_weapon_satisfies_skill(definition: SkillDefinition) -> bool:
+	if definition.required_weapon_types.is_empty():
+		return true
+	var weapon := get_equipped_item(EquipmentSlot.WEAPON)
+	return weapon != null and weapon.get_weapon_type() in definition.required_weapon_types
 
 
 func _handle_attack_input() -> void:
@@ -977,6 +1194,43 @@ func _profile_for_id(profile_id: StringName) -> PlayerBasicAttackProfile:
 	return null
 
 
+func _start_skill(definition: SkillDefinition) -> void:
+	if definition == null or current_state == State.ATTACK:
+		return
+	var started_airborne := not is_on_floor()
+	_attack_started_on_floor = not started_airborne
+	_current_skill_definition = definition
+	_current_skill_rank = get_skill_rank(definition.id)
+	_current_attack_profile = null
+	_current_attack_type = AttackType.SKILL
+	_current_attack_critical = _stats.roll_critical()
+	_current_attack_damage = _calculate_skill_damage(
+		definition,
+		_current_skill_rank,
+		_current_attack_critical
+	)
+	_current_attack_projectile_spawned = false
+	_current_attack_hit_confirmed = false
+	_skill_cooldowns[definition.id] = _elapsed_time + definition.cooldown
+
+	var direction := _movement_axis()
+	_attack_direction = direction if direction != 0.0 else _facing_direction
+	_facing_direction = _attack_direction
+	_visual.set_facing_direction(_facing_direction)
+	var weapon := get_equipped_item(EquipmentSlot.WEAPON)
+	var weapon_type := weapon.get_weapon_type() if weapon != null else &""
+	_visual.set_attack(true, _current_attack_type, weapon_type, definition.id)
+	_set_attack_phase(AttackPhase.STARTUP)
+	_configure_skill_melee_hitbox(definition)
+	_attack_elapsed = 0.0
+	_attack_hitbox_active = false
+	_sprint_direction = 0.0
+	if started_airborne:
+		_air_attack_consumed = true
+	_set_state(State.ATTACK)
+	attack_started.emit(_current_attack_type, definition.id)
+
+
 func _start_attack(attack_type: AttackType) -> void:
 	if current_state == State.ATTACK:
 		return
@@ -1013,6 +1267,21 @@ func _start_attack(attack_type: AttackType) -> void:
 	attack_started.emit(_current_attack_type, profile.id)
 
 
+func _configure_skill_melee_hitbox(definition: SkillDefinition) -> void:
+	_attack_hitbox.deactivate()
+	if definition.delivery != SkillDefinition.Delivery.MELEE:
+		return
+	if _attack_collision.shape is RectangleShape2D:
+		(_attack_collision.shape as RectangleShape2D).size = Vector2(
+			maxf(definition.melee_hitbox_size.x, 1.0),
+			maxf(definition.melee_hitbox_size.y, 1.0)
+		)
+	_attack_hitbox.position = Vector2(
+		absf(definition.melee_hitbox_offset.x) * _attack_direction,
+		definition.melee_hitbox_offset.y
+	)
+
+
 func _configure_melee_hitbox(profile: PlayerBasicAttackProfile) -> void:
 	_attack_hitbox.deactivate()
 	if profile.delivery != PlayerBasicAttackProfile.Delivery.MELEE:
@@ -1024,6 +1293,9 @@ func _configure_melee_hitbox(profile: PlayerBasicAttackProfile) -> void:
 
 func _update_attack(delta: float) -> void:
 	if current_state != State.ATTACK:
+		return
+	if _current_skill_definition != null:
+		_update_skill_cast(delta)
 		return
 	if _current_attack_profile == null:
 		_finish_attack()
@@ -1047,6 +1319,57 @@ func _update_attack(delta: float) -> void:
 		_finish_attack()
 
 
+func _update_skill_cast(delta: float) -> void:
+	var definition := _current_skill_definition
+	if definition == null:
+		_finish_attack()
+		return
+	_attack_elapsed += delta
+	_set_attack_phase(_phase_for_skill_elapsed(_attack_elapsed, definition))
+	var hit_start := definition.startup_time
+	var hit_end := hit_start + definition.active_time
+	if definition.delivery == SkillDefinition.Delivery.MELEE:
+		var should_be_active := _attack_elapsed >= hit_start and _attack_elapsed < hit_end
+		if should_be_active and not _attack_hitbox_active:
+			_attack_hitbox.activate(
+				_current_attack_damage,
+				self,
+				_attack_direction,
+				_current_skill_metadata()
+			)
+			_attack_hitbox_active = true
+		elif not should_be_active and _attack_hitbox_active:
+			_attack_hitbox.deactivate()
+			_attack_hitbox_active = false
+	elif not _current_attack_projectile_spawned and _attack_elapsed >= hit_start:
+		_spawn_skill_projectile(definition)
+		_current_attack_projectile_spawned = true
+
+	if _attack_elapsed >= hit_end + definition.recovery_time:
+		_finish_attack()
+
+
+func _spawn_skill_projectile(definition: SkillDefinition) -> void:
+	if get_parent() == null:
+		return
+	var projectile := PLAYER_ATTACK_PROJECTILE_SCENE.instantiate() as PlayerAttackProjectile
+	projectile.hit_confirmed.connect(
+		_on_skill_projectile_hit_confirmed.bind(definition.id)
+	)
+	get_parent().add_child(projectile)
+	projectile.global_position = global_position + Vector2(
+		definition.projectile_spawn_offset.x * _attack_direction,
+		definition.projectile_spawn_offset.y
+	)
+	projectile.initialize_skill(
+		definition,
+		_current_attack_damage,
+		self,
+		_attack_direction,
+		_current_skill_metadata()
+	)
+
+
 func _spawn_attack_projectile(profile: PlayerBasicAttackProfile) -> void:
 	if get_parent() == null:
 		return
@@ -1062,14 +1385,25 @@ func _finish_attack() -> void:
 
 
 func _cancel_attack() -> void:
-	if current_state != State.ATTACK and not _attack_hitbox_active and _current_attack_profile == null:
+	if (
+		current_state != State.ATTACK
+		and not _attack_hitbox_active
+		and _current_attack_profile == null
+		and _current_skill_definition == null
+	):
 		return
 	_end_attack(true, false)
 
 
 func _end_attack(cancelled: bool, resolve_after_end: bool) -> void:
 	var ended_type := _current_attack_type
-	var ended_profile_id := _current_attack_profile.id if _current_attack_profile != null else &""
+	var ended_profile_id := (
+		_current_skill_definition.id
+		if _current_skill_definition != null
+		else _current_attack_profile.id
+		if _current_attack_profile != null
+		else &""
+	)
 	_attack_hitbox.deactivate()
 	_attack_hitbox_active = false
 	_attack_elapsed = 0.0
@@ -1091,10 +1425,29 @@ func _resolve_state_after_attack() -> void:
 
 func _clear_attack_snapshot() -> void:
 	_current_attack_profile = null
+	_current_skill_definition = null
+	_current_skill_rank = 0
 	_current_attack_damage = 1
 	_current_attack_projectile_spawned = false
 	_current_attack_hit_confirmed = false
 	_attack_started_on_floor = false
+
+
+func _current_skill_metadata() -> Dictionary:
+	if _current_skill_definition == null:
+		return {}
+	var metadata := {
+		"attack_id": _current_skill_definition.id,
+		"skill_id": _current_skill_definition.id,
+		"skill_rank": _current_skill_rank,
+		"is_critical": _current_attack_critical,
+	}
+	if _current_skill_definition.force_knockback:
+		metadata["force_knockback"] = true
+		metadata["minimum_knockback_speed"] = (
+			_current_skill_definition.minimum_knockback_speed
+		)
+	return metadata
 
 
 func _current_attack_metadata() -> Dictionary:
@@ -1108,6 +1461,21 @@ func _current_attack_metadata() -> Dictionary:
 		metadata["force_knockback"] = true
 		metadata["minimum_knockback_speed"] = _current_attack_profile.minimum_knockback_speed
 	return metadata
+
+
+func _phase_for_skill_elapsed(elapsed: float, definition: SkillDefinition) -> AttackPhase:
+	if definition == null:
+		return AttackPhase.NONE
+	var hit_start := definition.startup_time
+	var hit_end := hit_start + definition.active_time
+	var duration := hit_end + definition.recovery_time
+	if elapsed < hit_start:
+		return AttackPhase.STARTUP
+	if elapsed < hit_end:
+		return AttackPhase.ACTIVE
+	if elapsed < duration:
+		return AttackPhase.RECOVERY
+	return AttackPhase.NONE
 
 
 func _phase_for_attack_elapsed(elapsed: float, profile: PlayerBasicAttackProfile) -> AttackPhase:
@@ -1130,6 +1498,15 @@ func _set_attack_phase(phase: AttackPhase) -> void:
 	attack_phase_changed.emit(_current_attack_type, phase)
 
 
+func _apply_skill_hit_feedback(definition: SkillDefinition) -> void:
+	if definition == null:
+		return
+	_visual.show_attack_hit_feedback(
+		definition.hit_feedback_time,
+		definition.hit_feedback_intensity
+	)
+
+
 func _apply_attack_hit_feedback(profile: PlayerBasicAttackProfile) -> void:
 	if profile == null:
 		return
@@ -1137,11 +1514,42 @@ func _apply_attack_hit_feedback(profile: PlayerBasicAttackProfile) -> void:
 
 
 func _on_attack_hit_confirmed(_hurtbox: Hurtbox, _damage: int, source: Node, _hit_direction: float) -> void:
-	if source != self or current_state != State.ATTACK or _current_attack_profile == null:
+	if source != self or current_state != State.ATTACK:
+		return
+	if _current_skill_definition != null:
+		_current_attack_hit_confirmed = true
+		_apply_skill_hit_feedback(_current_skill_definition)
+		attack_hit_confirmed.emit(
+			AttackType.SKILL,
+			_current_skill_definition.id
+		)
+		return
+	if _current_attack_profile == null:
 		return
 	_current_attack_hit_confirmed = true
 	_apply_attack_hit_feedback(_current_attack_profile)
 	attack_hit_confirmed.emit(_current_attack_type, _current_attack_profile.id)
+
+
+func _on_skill_projectile_hit_confirmed(
+	_hurtbox: Hurtbox,
+	_damage: int,
+	source: Node,
+	_hit_direction: float,
+	skill_id: StringName
+) -> void:
+	if source != self:
+		return
+	var definition := DefinitionRegistry.get_skill(skill_id)
+	if (
+		current_state == State.ATTACK
+		and _current_skill_definition != null
+		and _current_skill_definition.id == skill_id
+	):
+		_current_attack_hit_confirmed = true
+		definition = _current_skill_definition
+	_apply_skill_hit_feedback(definition)
+	attack_hit_confirmed.emit(AttackType.SKILL, skill_id)
 
 
 func _on_projectile_hit_confirmed(
@@ -1160,6 +1568,23 @@ func _on_projectile_hit_confirmed(
 	else:
 		_apply_attack_hit_feedback(_profile_for_id(profile_id))
 	attack_hit_confirmed.emit(attack_type, profile_id)
+
+
+func _calculate_skill_damage(
+	definition: SkillDefinition,
+	rank: int,
+	critical: bool
+) -> int:
+	var stat_key := (
+		PlayerStats.MAGIC_ATTACK
+		if definition.damage_stat == SkillDefinition.DamageStat.MAGIC_ATTACK
+		else PlayerStats.PHYSICAL_ATTACK
+	)
+	return _stats.calculate_attack_damage(
+		stat_key,
+		definition.damage_multiplier_at_rank(rank),
+		critical
+	)
 
 
 func _calculate_attack_damage(profile: PlayerBasicAttackProfile, critical: bool) -> int:
@@ -1184,6 +1609,8 @@ func _attack_damage() -> int:
 
 
 func _attack_walk_speed_multiplier() -> float:
+	if _current_skill_definition != null:
+		return 0.0
 	return _current_attack_profile.walk_speed_multiplier if _current_attack_profile != null else 0.0
 
 
@@ -1415,6 +1842,7 @@ func respawn(reason: RespawnReason = RespawnReason.DEATH) -> void:
 	_drop_through_timer = 0.0
 	_next_light_attack_time = 0.0
 	_next_heavy_attack_time = 0.0
+	_skill_cooldowns.clear()
 	_last_auto_attack_type = AttackType.HEAVY
 	_current_attack_critical = false
 	_health = get_max_health()

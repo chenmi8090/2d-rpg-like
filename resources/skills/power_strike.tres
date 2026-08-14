@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="SkillDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/skills/skill_definition.gd" id="1_skill"]
+
+[resource]
+script = ExtResource("1_skill")
+id = &"power_strike"
+display_name = "破阵重击"
+description = "蓄力后向前猛击，必定将命中的敌人击退一段距离。"
+kind = 0
+category = &"offensive_ultimate"
+profession_ids = Array[StringName]([&"traveler"])
+required_level = 5
+required_weapon_types = Array[StringName]([&"sword"])
+allow_ground = true
+allow_air = false
+startup_time = 0.35
+active_time = 0.14
+recovery_time = 0.45
+cooldown = 5.0
+delivery = 0
+damage_stat = 0
+base_damage_multiplier = 1.5
+damage_multiplier_per_rank = 0.35
+melee_hitbox_size = Vector2(110, 64)
+melee_hitbox_offset = Vector2(58, -8)
+force_knockback = true
+minimum_knockback_speed = 150.0

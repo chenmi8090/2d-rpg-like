@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="SkillDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/skills/skill_definition.gd" id="1_skill"]
+
+[resource]
+script = ExtResource("1_skill")
+id = &"traveler_vitality"
+display_name = "旅途体魄"
+description = "长期旅行锻炼出的体魄，每级提高生命上限。"
+kind = 1
+category = &"basic_stat_passive"
+profession_ids = Array[StringName]([&"traveler"])
+required_level = 2
+passive_stat_key = &"max_health"
+passive_flat_bonus_per_rank = 8.0
