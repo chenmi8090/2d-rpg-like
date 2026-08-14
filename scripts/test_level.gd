@@ -9,13 +9,17 @@ const MAP_LEFT := -370.0
 const MAP_RIGHT := 3300.0
 const HEALTH_BAR_WIDTH := 180.0
 const EXPERIENCE_BAR_WIDTH := 180.0
-const AREA_ID := &"test_level"
-const SAFE_SPAWN_ID := &"start"
-const SAFE_SPAWN_POSITION := Vector2(80.0, 550.0)
+const DEFAULT_MAP_ID := &"test_level"
+const DEFAULT_ENTRY_ID := &"start"
+const PORTAL_REARM_DISTANCE := 112.0
+const REMINDER_DURATION := 2.5
 const BACKPACK_COLUMNS := 10
 const SELECTED_COLOR := Color("ffe17a")
 
 @onready var _player: Player = $Player
+@onready var _map_root: Node2D = $MapRoot
+@onready var _platforms: Node2D = $Platforms
+@onready var _world_markers: Node2D = $WorldMarkers
 @onready var _drops: Node2D = $Drops
 @onready var _platform_navigation: PlatformNavigationRegistry = $PlatformNavigation
 @onready var _encounter_manager: EncounterManager = $EncounterManager
@@ -53,7 +57,17 @@ const SELECTED_COLOR := Color("ffe17a")
 @onready var _return_button: Button = $Interface/SessionPanel/ReturnButton
 @onready var _save_status_text: Label = $Interface/SessionPanel/SaveStatusText
 @onready var _return_status_text: Label = $Interface/SessionPanel/ReturnStatusText
+@onready var _map_title_text: Label = $Interface/MapTitle
+@onready var _interaction_prompt_text: Label = $Interface/InteractionPrompt
+@onready var _world_status_text: Label = $Interface/WorldStatus
 
+var _map_definition: MapDefinition
+var _map_layout: Node2D
+var _active_portal: PortalDefinition
+var _active_checkpoint: CheckpointDefinition
+var _locked_portal_ids: Dictionary = {}
+var _portal_transition_locked := false
+var _portal_rearm_position := Vector2.INF
 var _rng := RandomNumberGenerator.new()
 var _connected_enemies: Dictionary = {}
 var _equipment_rows: Dictionary = {}
@@ -70,13 +84,15 @@ var _selected_skill_id: StringName = &""
 var _profession_skills: Array[SkillDefinition] = []
 var _skill_buttons_by_id: Dictionary = {}
 var _level_up_tween: Tween
+var _reminder_versions: Dictionary = {}
 
 
 func _ready() -> void:
 	_apply_ui_foundation()
-	_build_course()
-	_register_platform_navigation()
 	_rng.randomize()
+	var initial_map_result := load_world_map(DEFAULT_MAP_ID, DEFAULT_ENTRY_ID)
+	if not initial_map_result.ok:
+		_on_save_status_changed(String(initial_map_result.message), true)
 	_setup_equipment_rows()
 	_player.respawned.connect(_on_player_respawned)
 	_player.health_changed.connect(_update_player_health)
@@ -106,6 +122,10 @@ func _ready() -> void:
 	get_tree().node_added.connect(_on_node_added)
 
 
+func _process(_delta: float) -> void:
+	_update_world_interaction()
+
+
 func _exit_tree() -> void:
 	if is_instance_valid(_player):
 		_player.set_gameplay_input_blocked(false)
@@ -117,11 +137,58 @@ func _exit_tree() -> void:
 
 
 func get_area_id() -> StringName:
-	return AREA_ID
+	return _map_definition.id if _map_definition != null else DEFAULT_MAP_ID
 
 
 func get_safe_spawn_position(spawn_id: StringName) -> Vector2:
-	return SAFE_SPAWN_POSITION if spawn_id == SAFE_SPAWN_ID else Vector2.INF
+	if _map_definition == null:
+		return Vector2.INF
+	var entry := _map_definition.get_entry(spawn_id)
+	return entry.position if entry != null else Vector2.INF
+
+
+func load_world_map(map_id: StringName, entry_id: StringName) -> Dictionary:
+	var definition := DefinitionRegistry.get_map(map_id)
+	if definition == null:
+		return {"ok": false, "message": "地图定义无效"}
+	var entry := definition.get_entry(entry_id)
+	if entry == null:
+		entry = definition.get_entry(definition.default_entry_id)
+	if entry == null:
+		return {"ok": false, "message": "地图入口无效"}
+	var packed_scene := load(definition.scene_path) as PackedScene
+	if packed_scene == null:
+		return {"ok": false, "message": "地图场景无法载入"}
+	_reset_enemy_aggro()
+	_clear_world_map()
+	_map_definition = definition
+	_map_layout = packed_scene.instantiate() as Node2D
+	if _map_layout == null:
+		return {"ok": false, "message": "地图场景根节点无效"}
+	_map_root.add_child(_map_layout)
+	_build_course_from_layout(_map_layout)
+	_build_world_markers()
+	_configure_player_camera(definition.camera_bounds)
+	_player.apply_safe_spawn(entry.position)
+	_player.set_facing_direction(entry.facing_direction)
+	_map_title_text.text = "%s / %s" % [
+		DefinitionRegistry.get_region(definition.region_id).display_name,
+		definition.display_name,
+	]
+	_portal_transition_locked = true
+	_portal_rearm_position = entry.position
+	_interaction_prompt_text.visible = false
+	_world_status_text.text = ""
+	return {"ok": true, "message": ""}
+
+
+func set_portal_condition(condition_id: StringName, unlocked: bool) -> void:
+	if condition_id == &"":
+		return
+	if unlocked:
+		_locked_portal_ids.erase(condition_id)
+	else:
+		_locked_portal_ids[condition_id] = true
 
 
 func is_combat_active() -> bool:
@@ -131,27 +198,61 @@ func is_combat_active() -> bool:
 	return false
 
 
+func _show_reminder(label: Label, message: String, duration := REMINDER_DURATION) -> void:
+	if label == null:
+		return
+	label.text = message
+	var version := int(_reminder_versions.get(label, 0)) + 1
+	_reminder_versions[label] = version
+	if message.is_empty() or duration <= 0.0:
+		return
+	_clear_reminder_after_delay(label, version, duration)
+
+
+func _clear_reminder_after_delay(label: Label, version: int, duration: float) -> void:
+	await get_tree().create_timer(duration).timeout
+	if not is_instance_valid(label) or int(_reminder_versions.get(label, 0)) != version:
+		return
+	label.text = ""
+
+
 func _on_return_button_pressed() -> void:
 	var result := GameSession.request_return_to_list()
 	if not result.ok:
-		_return_status_text.text = String(result.message)
+		_show_reminder(_return_status_text, String(result.message))
 
 
 func _on_save_status_changed(message: String, failed: bool) -> void:
-	_save_status_text.text = message
+	_show_reminder(_save_status_text, message)
 	_save_status_text.modulate = Color("ff916f") if failed else Color("e8d579")
 
 
 func _on_return_countdown_changed(message: String, active: bool) -> void:
-	_return_status_text.text = message
+	_show_reminder(_return_status_text, message, 0.0 if active else REMINDER_DURATION)
 	_return_button.disabled = active
 
 
 func _on_player_respawned(reason: Player.RespawnReason) -> void:
+	if reason == Player.RespawnReason.DEATH and GameSession.has_active_profile():
+		_recover_from_checkpoint.call_deferred()
+		return
 	if reason != Player.RespawnReason.MANUAL_RESET:
 		return
 	_clear_drops()
 	_encounter_manager.reset_encounter()
+
+
+func _recover_from_checkpoint() -> void:
+	var respawn := GameSession.get_respawn_location()
+	var map_id := StringName(String(respawn.get("map_id", DEFAULT_MAP_ID)))
+	var entry_id := StringName(String(respawn.get("entry_id", DEFAULT_ENTRY_ID)))
+	var result := load_world_map(map_id, entry_id)
+	if not result.ok:
+		_show_reminder(_world_status_text, String(result.message))
+		return
+	_clear_drops()
+	_encounter_manager.reset_encounter()
+	_show_reminder(_world_status_text, "已从复活点恢复")
 
 
 func _on_experience_reward_accepted(amount: int, _enemy: GroundedEnemyController, credited_player: Player, _group_index: int, _spawn_index: int) -> void:
@@ -262,7 +363,8 @@ func _equipment_drop_position(origin: Vector2) -> Vector2:
 	var surface := _platform_navigation.get_surface_at_position(origin, 0.0, 72.0)
 	if surface != null:
 		return Vector2(surface.clamp_safe_x(origin.x, 24.0), surface.top_y - 34.0)
-	return Vector2(clampf(origin.x, MAP_LEFT + 24.0, MAP_RIGHT - 24.0), origin.y - 34.0)
+	var bounds := _map_definition.camera_bounds if _map_definition != null else Rect2(-370.0, -100.0, 3670.0, 820.0)
+	return Vector2(clampf(origin.x, bounds.position.x + 24.0, bounds.end.x - 24.0), origin.y - 34.0)
 
 
 func _update_player_health(current: int, maximum: int) -> void:
@@ -419,7 +521,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_move_skill_selection(1)
 		get_viewport().set_input_as_handled()
 		return
-	if event.is_action_pressed("toggle_attributes") and not echoed:
+	if event.is_action_pressed("interact_up") and not echoed and _active_portal != null:
+		_use_active_portal()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("toggle_attributes") and not echoed:
 		_set_attributes_panel_visible(true)
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("toggle_backpack") and not echoed:
@@ -574,23 +679,23 @@ func _scroll_selected_skill() -> void:
 
 func _increase_selected_skill_rank() -> void:
 	if _selected_skill_id == &"":
-		_skills_feedback_text.text = "没有可加点的技能"
+		_show_reminder(_skills_feedback_text, "没有可加点的技能")
 		return
 	var result := _player.increase_skill_rank(_selected_skill_id)
 	_update_skills_panel()
-	_skills_feedback_text.text = String(result.get("message", "加点失败"))
+	_show_reminder(_skills_feedback_text, String(result.get("message", "加点失败")))
 
 
 func _assign_selected_skill_to_slot(slot_index: int) -> void:
 	if _selected_skill_id == &"":
-		_skills_feedback_text.text = "没有可配置的技能"
+		_show_reminder(_skills_feedback_text, "没有可配置的技能")
 		return
 	var result := _player.set_skill_quickbar_slot(slot_index, _selected_skill_id)
 	_update_skills_panel()
-	_skills_feedback_text.text = "%s：快捷栏 %d" % [
+	_show_reminder(_skills_feedback_text, "%s：快捷栏 %d" % [
 		String(result.get("message", "配置失败")),
 		slot_index + 1,
-	]
+	])
 
 
 func _update_skill_detail() -> void:
@@ -745,7 +850,7 @@ func _unequip_selected_slot() -> void:
 	if item == null:
 		return
 	if _player.unequip_to_inventory(_selected_equipment_slot):
-		_backpack_feedback_text.text = "已卸下：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
+		_show_reminder(_backpack_feedback_text, "已卸下：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()])
 
 
 func _show_active_equipment_detail() -> void:
@@ -1029,7 +1134,7 @@ func _equip_selected_backpack_item() -> void:
 		return
 	_selected_backpack_index_hint = _find_backpack_index(instance_id)
 	if _player.equip_inventory_item(instance_id):
-		_backpack_feedback_text.text = "已装备：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
+		_show_reminder(_backpack_feedback_text, "已装备：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()])
 
 
 func _open_discard_confirmation() -> void:
@@ -1059,11 +1164,11 @@ func _confirm_discard() -> void:
 	_selected_backpack_instance_id = instance_id
 	_selected_backpack_index_hint = fallback_index
 	if _player.discard_inventory_item(instance_id):
-		_backpack_feedback_text.text = "已丢弃：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
+		_show_reminder(_backpack_feedback_text, "已丢弃：[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()])
 
 
 func _on_equipment_equip_failed(message: String) -> void:
-	_backpack_feedback_text.text = "无法装备：%s" % message
+	_show_reminder(_backpack_feedback_text, "无法装备：%s" % message)
 
 
 func _show_active_backpack_detail() -> void:
@@ -1098,38 +1203,168 @@ func _format_percent(value: float) -> String:
 	return "%s%%" % _format_stat(value * 100.0)
 
 
-func _register_platform_navigation() -> void:
+func _reset_enemy_aggro() -> void:
+	for enemy in _encounter_manager.get_owned_enemies():
+		if enemy != null and is_instance_valid(enemy) and enemy.visible:
+			enemy.reset_aggro_at_current_position()
+
+
+func _clear_world_map() -> void:
+	_active_portal = null
+	_active_checkpoint = null
+	_interaction_prompt_text.visible = false
+	for child in _map_root.get_children():
+		_map_root.remove_child(child)
+		child.queue_free()
+	for child in _platforms.get_children():
+		_platforms.remove_child(child)
+		child.queue_free()
+	for child in _world_markers.get_children():
+		_world_markers.remove_child(child)
+		child.queue_free()
 	_platform_navigation.clear()
-	_platform_navigation.register_surface(&"ground", -400.0, 3300.0, 640.0, false, true)
-	_platform_navigation.register_surface(&"p1", 370.0, 670.0, 554.0, true)
-	_platform_navigation.register_surface(&"p2", 770.0, 1030.0, 484.0, true)
-	_platform_navigation.register_surface(&"p3", 1110.0, 1430.0, 539.0, true)
-	_platform_navigation.register_surface(&"p4", 1530.0, 1830.0, 459.0, true)
-	_platform_navigation.register_surface(&"p5", 1920.0, 2260.0, 529.0, true)
-	_platform_navigation.register_surface(&"p6", 2360.0, 2660.0, 439.0, true)
-	_platform_navigation.add_bidirectional_link(&"ground", &"p1")
-	_platform_navigation.add_bidirectional_link(&"p1", &"p2")
-	_platform_navigation.add_bidirectional_link(&"p2", &"p3")
-	_platform_navigation.add_bidirectional_link(&"ground", &"p3")
-	_platform_navigation.add_bidirectional_link(&"p3", &"p4")
-	_platform_navigation.add_bidirectional_link(&"p4", &"p5")
-	_platform_navigation.add_bidirectional_link(&"ground", &"p5")
-	_platform_navigation.add_bidirectional_link(&"p5", &"p6")
 
 
-func _build_course() -> void:
-	# Every map keeps a continuous floor and solid left/right limits.
-	_create_platform(Vector2(1450, 680), Vector2(3700, 80), false)
-	_create_map_boundary(MAP_LEFT)
-	_create_map_boundary(MAP_RIGHT)
+func _build_course_from_layout(layout: Node) -> void:
+	if not layout.has_method("get_floor_center") or not layout.has_method("get_floor_size"):
+		return
+	var floor_center: Vector2 = layout.call("get_floor_center")
+	var floor_size: Vector2 = layout.call("get_floor_size")
+	_create_platform(floor_center, floor_size, false)
+	var left := floor_center.x - floor_size.x * 0.5
+	var right := floor_center.x + floor_size.x * 0.5
+	_create_map_boundary(left)
+	_create_map_boundary(right)
+	_platform_navigation.register_surface(&"ground", left, right, floor_center.y - floor_size.y * 0.5, false, true)
+	var previous_id := &"ground"
+	var platform_rects: Array[Rect2] = layout.call("get_platform_rects")
+	for index in platform_rects.size():
+		var rect := platform_rects[index]
+		var center := rect.position + rect.size * 0.5
+		_create_platform(center, rect.size, true)
+		var surface_id := StringName("platform_%d" % index)
+		_platform_navigation.register_surface(surface_id, rect.position.x, rect.end.x, rect.position.y, true)
+		_platform_navigation.add_bidirectional_link(previous_id, surface_id)
+		previous_id = surface_id
 
-	# Upper platforms allow passage from below and support actors landing from above.
-	_create_platform(Vector2(520, 570), Vector2(300, 32), true)
-	_create_platform(Vector2(900, 500), Vector2(260, 32), true)
-	_create_platform(Vector2(1270, 555), Vector2(320, 32), true)
-	_create_platform(Vector2(1680, 475), Vector2(300, 32), true)
-	_create_platform(Vector2(2090, 545), Vector2(340, 32), true)
-	_create_platform(Vector2(2510, 455), Vector2(300, 32), true)
+
+func _build_world_markers() -> void:
+	if _map_definition == null:
+		return
+	for portal in _map_definition.portals:
+		_world_markers.add_child(_create_world_marker(portal.position, Color("7ed8ff"), "传送门"))
+	for checkpoint in _map_definition.checkpoints:
+		_world_markers.add_child(_create_world_marker(checkpoint.position, Color("ffe072"), checkpoint.display_name))
+
+
+func _create_world_marker(position: Vector2, color: Color, label_text: String) -> Node2D:
+	var marker := Node2D.new()
+	marker.position = position
+	var pillar := Polygon2D.new()
+	pillar.polygon = PackedVector2Array([
+		Vector2(-16.0, 54.0), Vector2(16.0, 54.0),
+		Vector2(11.0, -42.0), Vector2(-11.0, -42.0),
+	])
+	pillar.color = color
+	marker.add_child(pillar)
+	var label := Label.new()
+	label.position = Vector2(-100.0, -82.0)
+	label.size = Vector2(200.0, 30.0)
+	label.text = label_text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_color_override("font_color", color)
+	marker.add_child(label)
+	return marker
+
+
+func _configure_player_camera(bounds: Rect2) -> void:
+	var camera := _player.get_node_or_null("Camera2D") as Camera2D
+	if camera == null:
+		return
+	camera.limit_left = floori(bounds.position.x)
+	camera.limit_top = floori(bounds.position.y)
+	camera.limit_right = ceili(bounds.end.x)
+	camera.limit_bottom = ceili(bounds.end.y)
+	camera.reset_smoothing()
+
+
+func _update_world_interaction() -> void:
+	if _map_definition == null or not is_instance_valid(_player):
+		return
+	if _portal_transition_locked:
+		if (
+			not Input.is_action_pressed("interact_up")
+			or _player.global_position.distance_to(_portal_rearm_position) >= PORTAL_REARM_DISTANCE
+		):
+			_portal_transition_locked = false
+		else:
+			_active_portal = null
+	_active_checkpoint = _nearest_checkpoint()
+	if _active_checkpoint != null:
+		var checkpoint_id := _active_checkpoint.id
+		var location := GameSession.get_active_world_location()
+		if StringName(String(location.get("active_checkpoint_id", ""))) != checkpoint_id:
+			var result := GameSession.activate_checkpoint(checkpoint_id)
+			_show_reminder(_world_status_text, String(result.get("message", "")))
+	_active_portal = null if _portal_transition_locked else _nearest_portal()
+	if _active_portal == null:
+		_interaction_prompt_text.visible = false
+		return
+	_interaction_prompt_text.text = (
+		_active_portal.interaction_prompt
+		if not _active_portal.interaction_prompt.is_empty()
+		else "按 W 进入传送门"
+	)
+	_interaction_prompt_text.visible = true
+
+
+func _nearest_portal() -> PortalDefinition:
+	var nearest: PortalDefinition
+	var nearest_distance := INF
+	for portal in _map_definition.portals:
+		var distance := _player.global_position.distance_to(portal.position)
+		if distance <= portal.interaction_radius and distance < nearest_distance:
+			nearest = portal
+			nearest_distance = distance
+	return nearest
+
+
+func _nearest_checkpoint() -> CheckpointDefinition:
+	var nearest: CheckpointDefinition
+	var nearest_distance := INF
+	for checkpoint in _map_definition.checkpoints:
+		var distance := _player.global_position.distance_to(checkpoint.position)
+		if distance <= checkpoint.interaction_radius and distance < nearest_distance:
+			nearest = checkpoint
+			nearest_distance = distance
+	return nearest
+
+
+func _use_active_portal() -> void:
+	if _active_portal == null or _portal_transition_locked:
+		return
+	if _active_portal.condition_id != &"" and _locked_portal_ids.has(_active_portal.condition_id):
+		_show_reminder(
+			_world_status_text,
+			_active_portal.locked_message
+			if not _active_portal.locked_message.is_empty()
+			else "当前无法使用传送门"
+		)
+		return
+	var portal := _active_portal
+	_portal_transition_locked = true
+	_active_portal = null
+	_interaction_prompt_text.visible = false
+	var result := load_world_map(portal.target_map_id, portal.target_entry_id)
+	if not result.ok:
+		_portal_transition_locked = false
+		_show_reminder(_world_status_text, String(result.message))
+		return
+	var location_result := GameSession.set_continue_location(portal.target_map_id, portal.target_entry_id)
+	if not location_result.ok:
+		_show_reminder(_world_status_text, String(location_result.message))
+		return
+	GameSession.request_autosave(&"portal")
 
 
 func _create_map_boundary(x_position: float) -> void:
@@ -1137,7 +1372,7 @@ func _create_map_boundary(x_position: float) -> void:
 	body.position = Vector2(x_position, 0.0)
 	body.collision_layer = 1
 	body.collision_mask = 2
-	$Platforms.add_child(body)
+	_platforms.add_child(body)
 
 	var collision := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
@@ -1152,7 +1387,7 @@ func _create_platform(center: Vector2, size: Vector2, one_way: bool) -> void:
 	body.position = center
 	body.collision_layer = 4 if one_way else 1
 	body.collision_mask = 2
-	$Platforms.add_child(body)
+	_platforms.add_child(body)
 
 	var collision := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()

@@ -54,6 +54,7 @@ enum HitReaction {
 const ONE_WAY_LAYER := 3
 const DROP_THROUGH_TIME := 0.2
 const DROP_THROUGH_SPEED := 100.0
+const CROUCH_CLEARANCE_MASK := 1
 const STARDUST_FRAGMENT_ID := &"stardust_fragment"
 const EQUIPMENT_MODIFIER_SOURCE := &"equipment"
 const PASSIVE_SKILL_MODIFIER_SOURCE := &"passive_skills"
@@ -697,6 +698,14 @@ func apply_safe_spawn(spawn_position: Vector2) -> void:
 	_spawn_position = spawn_position
 	global_position = spawn_position
 	suppress_gameplay_input()
+
+
+func set_facing_direction(direction: float) -> void:
+	var resolved := signf(direction)
+	if resolved == 0.0:
+		return
+	_facing_direction = resolved
+	_visual.set_facing_direction(_facing_direction)
 
 
 func suppress_gameplay_input(duration := -1.0) -> void:
@@ -1791,7 +1800,7 @@ func _can_stand() -> bool:
 	var query := PhysicsShapeQueryParameters2D.new()
 	query.shape = clearance_shape
 	query.transform = Transform2D(0.0, global_position + Vector2(0.0, -24.0))
-	query.collision_mask = collision_mask
+	query.collision_mask = CROUCH_CLEARANCE_MASK
 	query.exclude = [get_rid()]
 	return get_world_2d().direct_space_state.intersect_shape(query, 1).is_empty()
 

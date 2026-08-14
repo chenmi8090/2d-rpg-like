@@ -49,7 +49,7 @@ func _run() -> void:
 	_expect(first_slot.profile_id != second_slot.profile_id, "不同角色使用独立稳定 ID")
 	var first_profile_path := "%s/%s.json" % [TEST_ROOT, String(first.profile_id)]
 	var first_profile := _read_json_file(first_profile_path)
-	_expect(int(first_profile.get("version", 0)) == 4, "新角色档案使用 v4 存档结构")
+	_expect(int(first_profile.get("version", 0)) == 5, "新角色档案使用 v5 存档结构")
 	var first_skills := first_profile.get("skills", {}) as Dictionary
 	_expect(int(first_skills.get("unspent_points", -1)) == 0, "新角色技能点从零开始")
 	_expect(
@@ -170,7 +170,7 @@ func _run() -> void:
 	legacy_file.store_string(JSON.stringify(legacy_profile))
 	legacy_file.close()
 	var migrated: Dictionary = session.continue_character(0)
-	_expect(migrated.ok, "v2 角色档案可以迁移到 v4")
+	_expect(migrated.ok, "v2 角色档案可以迁移到 v5")
 	var migrated_player := player_scene.instantiate() as Player
 	root.add_child(migrated_player)
 	await process_frame
@@ -219,7 +219,7 @@ func _run() -> void:
 	var v3_file := FileAccess.open(profile_path, FileAccess.WRITE)
 	v3_file.store_string(JSON.stringify(v3_profile))
 	v3_file.close()
-	_expect(session.continue_character(0).ok, "v3 技能档案可以迁移到 v4")
+	_expect(session.continue_character(0).ok, "v3 技能档案可以迁移到 v5")
 	var v3_player := player_scene.instantiate() as Player
 	root.add_child(v3_player)
 	await process_frame

@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="RegionDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/region_definition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"first_region"
+display_name = "星野边境"
+default_map_id = &"test_level"
+default_checkpoint_id = &"first_region_default"
+map_ids = Array[StringName]([&"test_level", &"field_passage_1", &"field_passage_2", &"field_passage_3"])

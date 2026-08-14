@@ -1,0 +1,48 @@
+[gd_resource type="Resource" script_class="MapDefinition" load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/map_definition.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/world/map_entry_definition.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/world/portal_definition.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/world/checkpoint_definition.gd" id="4"]
+
+[sub_resource type="Resource" id="EntryStart"]
+script = ExtResource("2")
+id = &"start"
+position = Vector2(80, 550)
+facing_direction = 1.0
+
+[sub_resource type="Resource" id="EntryFromPassage"]
+script = ExtResource("2")
+id = &"from_passage_1"
+position = Vector2(3050, 550)
+facing_direction = -1.0
+
+[sub_resource type="Resource" id="PortalPassage"]
+script = ExtResource("3")
+id = &"to_field_passage_1"
+position = Vector2(3150, 560)
+interaction_radius = 82.0
+target_map_id = &"field_passage_1"
+target_entry_id = &"from_test_level"
+interaction_prompt = "按 W 前往 野外通道-1"
+
+[sub_resource type="Resource" id="CheckpointDefault"]
+script = ExtResource("4")
+id = &"first_region_default"
+display_name = "初始复活点"
+map_id = &"test_level"
+entry_id = &"start"
+position = Vector2(180, 560)
+interaction_radius = 82.0
+
+[resource]
+script = ExtResource("1")
+id = &"test_level"
+region_id = &"first_region"
+display_name = "战斗试验场"
+scene_path = "res://scenes/levels/maps/test_level_map.tscn"
+default_entry_id = &"start"
+camera_bounds = Rect2(-370, -100, 3670, 820)
+entries = Array[ExtResource("2")]([SubResource("EntryStart"), SubResource("EntryFromPassage")])
+portals = Array[ExtResource("3")]([SubResource("PortalPassage")])
+checkpoints = Array[ExtResource("4")]([SubResource("CheckpointDefault")])

@@ -25,6 +25,28 @@ const SKILL_IDS: Array[StringName] = [
 	&"astral_spirit",
 ]
 
+const MAP_PATHS := {
+	&"test_level": "res://resources/world/maps/test_level.tres",
+	&"field_passage_1": "res://resources/world/maps/field_passage_1.tres",
+	&"field_passage_2": "res://resources/world/maps/field_passage_2.tres",
+	&"field_passage_3": "res://resources/world/maps/field_passage_3.tres",
+}
+
+const MAP_IDS: Array[StringName] = [
+	&"test_level",
+	&"field_passage_1",
+	&"field_passage_2",
+	&"field_passage_3",
+]
+
+const REGION_PATHS := {
+	&"first_region": "res://resources/world/regions/first_region.tres",
+}
+
+const REGION_IDS: Array[StringName] = [
+	&"first_region",
+]
+
 const EQUIPMENT_PATHS := {
 	&"hunter_bow": "res://resources/equipment/hunter_bow.tres",
 	&"iron_guard_coat": "res://resources/equipment/iron_guard_coat.tres",
@@ -73,6 +95,84 @@ static func get_skill(skill_id: StringName) -> SkillDefinition:
 	if definition == null or definition.id != skill_id or not definition.is_valid():
 		return null
 	return definition
+
+
+static func get_map(map_id: StringName) -> MapDefinition:
+	var path := String(MAP_PATHS.get(map_id, ""))
+	if path.is_empty():
+		return null
+	var definition := load(path) as MapDefinition
+	if definition == null or definition.id != map_id or not definition.is_valid():
+		return null
+	return definition
+
+
+static func get_maps() -> Array[MapDefinition]:
+	var definitions: Array[MapDefinition] = []
+	for map_id in MAP_IDS:
+		var definition := get_map(map_id)
+		if definition != null:
+			definitions.append(definition)
+	return definitions
+
+
+static func get_region(region_id: StringName) -> RegionDefinition:
+	var path := String(REGION_PATHS.get(region_id, ""))
+	if path.is_empty():
+		return null
+	var definition := load(path) as RegionDefinition
+	if definition == null or definition.id != region_id or not definition.is_valid():
+		return null
+	return definition
+
+
+static func get_regions() -> Array[RegionDefinition]:
+	var definitions: Array[RegionDefinition] = []
+	for region_id in REGION_IDS:
+		var definition := get_region(region_id)
+		if definition != null:
+			definitions.append(definition)
+	return definitions
+
+
+static func get_checkpoint(checkpoint_id: StringName) -> CheckpointDefinition:
+	for definition in get_maps():
+		var checkpoint := definition.get_checkpoint(checkpoint_id)
+		if checkpoint != null:
+			return checkpoint
+	return null
+
+
+static func validate_world() -> Dictionary:
+	var regions := get_regions()
+	var maps := get_maps()
+	if regions.size() != REGION_IDS.size() or maps.size() != MAP_IDS.size():
+		return {"ok": false, "message": "世界定义无法完整载入"}
+	for region in regions:
+		var default_map := get_map(region.default_map_id)
+		if default_map == null or default_map.region_id != region.id:
+			return {"ok": false, "message": "地区默认地图无效"}
+		if region.default_checkpoint_id != &"":
+			var default_checkpoint := get_checkpoint(region.default_checkpoint_id)
+			if default_checkpoint == null or default_checkpoint.map_id not in region.map_ids:
+				return {"ok": false, "message": "地区默认复活点无效"}
+		for map_id in region.map_ids:
+			var map_definition := get_map(map_id)
+			if map_definition == null or map_definition.region_id != region.id:
+				return {"ok": false, "message": "地区地图引用无效"}
+	for map_definition in maps:
+		var region := get_region(map_definition.region_id)
+		if region == null or map_definition.id not in region.map_ids:
+			return {"ok": false, "message": "地图地区引用无效"}
+		for portal in map_definition.portals:
+			var target_map := get_map(portal.target_map_id)
+			if target_map == null or target_map.get_entry(portal.target_entry_id) == null:
+				return {"ok": false, "message": "传送门目标无效"}
+			if not portal.condition_id.is_empty() and portal.locked_message.is_empty():
+				return {"ok": false, "message": "条件传送门缺少锁定提示"}
+		if not ResourceLoader.exists(map_definition.scene_path, "PackedScene"):
+			return {"ok": false, "message": "地图场景不存在"}
+	return {"ok": true, "message": ""}
 
 
 static func get_equipment(equipment_id: StringName) -> EquipmentDefinition:

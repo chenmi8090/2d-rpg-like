@@ -5,12 +5,16 @@ signal active_profile_changed(profile_id: String)
 signal save_status_changed(message: String, failed: bool)
 signal return_countdown_changed(message: String, active: bool)
 
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
+const SKILL_ENTITLEMENT_VERSION := 4
 const SLOT_COUNT := 3
 const DEFAULT_SAVE_ROOT := "user://profiles"
 const CHARACTER_SELECT_SCENE := "res://scenes/ui/character_select.tscn"
 const CHARACTER_CREATION_SCENE := "res://scenes/ui/character_creation.tscn"
-const TEST_LEVEL_SCENE := "res://scenes/levels/test_level.tscn"
+const GAMEPLAY_SCENE := "res://scenes/levels/test_level.tscn"
+const DEFAULT_REGION_ID := &"first_region"
+const DEFAULT_MAP_ID := &"test_level"
+const DEFAULT_ENTRY_ID := &"start"
 const GAMEPLAY_INPUT_ACTIONS: Array[StringName] = [
 	&"move_left",
 	&"move_right",
@@ -26,8 +30,8 @@ const GAMEPLAY_INPUT_ACTIONS: Array[StringName] = [
 	&"skill_slot_2",
 	&"reset",
 ]
-const DEFAULT_AREA_ID := &"test_level"
-const DEFAULT_SPAWN_ID := &"start"
+const DEFAULT_AREA_ID := DEFAULT_MAP_ID
+const DEFAULT_SPAWN_ID := DEFAULT_ENTRY_ID
 const AUTOSAVE_DELAY := 0.65
 const COMBAT_RETURN_DELAY := 5.0
 
@@ -249,7 +253,7 @@ func create_character(slot_index: int, raw_name: String, profession_id: StringNa
 		},
 		"skill_quickbar": {"slots": ["", ""]},
 		"equipment": equipment,
-		"location": {"area_id": String(DEFAULT_AREA_ID), "safe_spawn_id": String(DEFAULT_SPAWN_ID)},
+		"world_location": _default_world_location(),
 		"meta": {"last_save_reason": "creation"},
 	}
 	var save_result := _write_json_atomic(_profile_path(profile_id), profile, _profile_backup_path(profile_id))
@@ -276,7 +280,7 @@ func continue_character(slot_index: int) -> Dictionary:
 	active_profile_changed.emit(profile_id)
 	prepare_gameplay_scene_transition(get_viewport())
 	if not _test_disable_scene_changes:
-		var error := get_tree().change_scene_to_file(TEST_LEVEL_SCENE)
+		var error := get_tree().change_scene_to_file(GAMEPLAY_SCENE)
 		if error != OK:
 			_active_profile.clear()
 			return _failure("无法进入游戏场景")
@@ -318,22 +322,30 @@ func bind_level(level: Node, player: Player) -> Dictionary:
 	if not has_active_profile() or player == null:
 		return {"ok": true, "message": ""}
 	_loading_profile = true
-	var location := _active_profile.get("location", {}) as Dictionary
-	var area_id := StringName(String(location.get("area_id", DEFAULT_AREA_ID)))
-	var spawn_id := StringName(String(location.get("safe_spawn_id", DEFAULT_SPAWN_ID)))
-	if not level.has_method("get_area_id") or level.call("get_area_id") != area_id:
-		area_id = DEFAULT_AREA_ID
-		spawn_id = DEFAULT_SPAWN_ID
-	var spawn_position := Vector2(80.0, 550.0)
-	if level.has_method("get_safe_spawn_position"):
-		spawn_position = level.call("get_safe_spawn_position", spawn_id)
-		if spawn_position == Vector2.INF:
-			spawn_id = DEFAULT_SPAWN_ID
-			spawn_position = level.call("get_safe_spawn_position", spawn_id)
-	_active_profile["location"] = {"area_id": String(area_id), "safe_spawn_id": String(spawn_id)}
+	var location := get_active_world_location()
+	var map_id := StringName(String(location.get("continue_map_id", DEFAULT_MAP_ID)))
+	var entry_id := StringName(String(location.get("continue_spawn_point_id", DEFAULT_ENTRY_ID)))
+	var map_definition := DefinitionRegistry.get_map(map_id)
+	if map_definition == null:
+		map_definition = DefinitionRegistry.get_map(DEFAULT_MAP_ID)
+		map_id = DEFAULT_MAP_ID
+		entry_id = DEFAULT_ENTRY_ID
 	var apply_result := player.apply_save_snapshot(_active_profile)
-	if apply_result.ok:
+	if apply_result.ok and level.has_method("load_world_map"):
+		apply_result = level.call("load_world_map", map_id, entry_id)
+	elif apply_result.ok:
+		var spawn_position := Vector2(80.0, 550.0)
+		if level.has_method("get_area_id") and level.call("get_area_id") != map_id:
+			map_id = DEFAULT_MAP_ID
+			entry_id = DEFAULT_ENTRY_ID
+		if level.has_method("get_safe_spawn_position"):
+			spawn_position = level.call("get_safe_spawn_position", entry_id)
+			if spawn_position == Vector2.INF:
+				entry_id = DEFAULT_ENTRY_ID
+				spawn_position = level.call("get_safe_spawn_position", entry_id)
 		player.apply_safe_spawn(spawn_position)
+	if apply_result.ok:
+		set_continue_location(map_id, entry_id)
 	_loading_profile = false
 	if not apply_result.ok:
 		return apply_result
@@ -584,7 +596,11 @@ func _normalize_profile(raw: Variant) -> Dictionary:
 		profile.skills,
 		version
 	)
-	profile["location"] = _normalize_location(profile.get("location", {}))
+	profile["world_location"] = _normalize_world_location(
+		profile.get("world_location", profile.get("location", {})),
+		version
+	)
+	profile.erase("location")
 	profile["created_at"] = int(profile.get("created_at", 0))
 	profile["updated_at"] = int(profile.get("updated_at", profile.created_at))
 	profile["meta"] = profile.get("meta", {}) if profile.get("meta", {}) is Dictionary else {}
@@ -622,7 +638,7 @@ func _normalize_skills(
 			ranks[String(skill_id)] = rank
 			spent_points += rank
 	var unspent_points := maxi(int(source.get("unspent_points", 0)), 0)
-	if source_version < SAVE_VERSION:
+	if source_version < SKILL_ENTITLEMENT_VERSION:
 		var progression := load(
 			"res://resources/progression/default_player_progression.tres"
 		) as PlayerProgressionDefinition
@@ -798,16 +814,132 @@ func _equipment_serial_from_id(instance_id: String) -> int:
 	return maxi(int(instance_id.trim_prefix("equipment_")), 0)
 
 
-func _normalize_location(raw: Variant) -> Dictionary:
+func _default_world_location() -> Dictionary:
+	return {
+		"current_region_id": String(DEFAULT_REGION_ID),
+		"continue_map_id": String(DEFAULT_MAP_ID),
+		"continue_spawn_point_id": String(DEFAULT_ENTRY_ID),
+		"active_checkpoint_id": "",
+		"activated_checkpoint_ids": [],
+	}
+
+
+func _normalize_world_location(raw: Variant, source_version: int) -> Dictionary:
 	var source := raw as Dictionary if raw is Dictionary else {}
-	var area_id := StringName(String(source.get("area_id", DEFAULT_AREA_ID)))
-	var spawn_id := StringName(String(source.get("safe_spawn_id", DEFAULT_SPAWN_ID)))
-	if area_id != DEFAULT_AREA_ID:
-		area_id = DEFAULT_AREA_ID
-		spawn_id = DEFAULT_SPAWN_ID
-	if spawn_id != DEFAULT_SPAWN_ID:
-		spawn_id = DEFAULT_SPAWN_ID
-	return {"area_id": String(area_id), "safe_spawn_id": String(spawn_id)}
+	var map_id := StringName(String(source.get(
+		"continue_map_id",
+		source.get("area_id", DEFAULT_MAP_ID)
+	)))
+	var entry_id := StringName(String(source.get(
+		"continue_spawn_point_id",
+		source.get("safe_spawn_id", DEFAULT_ENTRY_ID)
+	)))
+	if source_version < 5 and map_id == &"test_level" and entry_id == &"default":
+		entry_id = DEFAULT_ENTRY_ID
+	var map_definition := DefinitionRegistry.get_map(map_id)
+	if map_definition == null or not map_definition.allow_continue:
+		map_definition = DefinitionRegistry.get_map(DEFAULT_MAP_ID)
+		map_id = DEFAULT_MAP_ID
+	if map_definition == null:
+		return _default_world_location()
+	var entry := map_definition.get_entry(entry_id)
+	if entry == null or not entry.allow_continue_fallback:
+		entry_id = map_definition.default_entry_id
+	var region_id := map_definition.region_id
+	var active_checkpoint_id := StringName(String(source.get("active_checkpoint_id", "")))
+	if active_checkpoint_id != &"" and DefinitionRegistry.get_checkpoint(active_checkpoint_id) == null:
+		active_checkpoint_id = &""
+	var activated: Array[String] = []
+	var raw_activated: Variant = source.get("activated_checkpoint_ids", [])
+	if raw_activated is Array:
+		for raw_checkpoint_id in raw_activated as Array:
+			var checkpoint_id := StringName(String(raw_checkpoint_id))
+			if (
+				checkpoint_id != &""
+				and DefinitionRegistry.get_checkpoint(checkpoint_id) != null
+				and String(checkpoint_id) not in activated
+			):
+				activated.append(String(checkpoint_id))
+	return {
+		"current_region_id": String(region_id),
+		"continue_map_id": String(map_id),
+		"continue_spawn_point_id": String(entry_id),
+		"active_checkpoint_id": String(active_checkpoint_id),
+		"activated_checkpoint_ids": activated,
+	}
+
+
+func get_active_world_location() -> Dictionary:
+	return (_active_profile.get("world_location", _default_world_location()) as Dictionary).duplicate(true)
+
+
+func get_continue_map_definition() -> MapDefinition:
+	var location := get_active_world_location()
+	return DefinitionRegistry.get_map(StringName(String(location.get("continue_map_id", DEFAULT_MAP_ID))))
+
+
+func get_respawn_location() -> Dictionary:
+	var location := get_active_world_location()
+	var checkpoint_id := StringName(String(location.get("active_checkpoint_id", "")))
+	var checkpoint := DefinitionRegistry.get_checkpoint(checkpoint_id)
+	if checkpoint == null:
+		var region := DefinitionRegistry.get_region(StringName(String(location.get(
+			"current_region_id",
+			DEFAULT_REGION_ID
+		))))
+		if region == null:
+			region = DefinitionRegistry.get_region(DEFAULT_REGION_ID)
+		if region != null:
+			checkpoint = DefinitionRegistry.get_checkpoint(region.default_checkpoint_id)
+	if checkpoint == null:
+		return {"map_id": String(DEFAULT_MAP_ID), "entry_id": String(DEFAULT_ENTRY_ID)}
+	return {"map_id": String(checkpoint.map_id), "entry_id": String(checkpoint.entry_id)}
+
+
+func set_continue_location(map_id: StringName, entry_id: StringName) -> Dictionary:
+	var map_definition := DefinitionRegistry.get_map(map_id)
+	if map_definition == null or not map_definition.allow_continue:
+		return _failure("目标地图无效")
+	var entry := map_definition.get_entry(entry_id)
+	if entry == null or not entry.allow_continue_fallback:
+		return _failure("目标入口无效")
+	var location := get_active_world_location()
+	location["current_region_id"] = String(map_definition.region_id)
+	location["continue_map_id"] = String(map_id)
+	location["continue_spawn_point_id"] = String(entry_id)
+	_active_profile["world_location"] = location
+	return {"ok": true, "message": ""}
+
+
+func activate_checkpoint(checkpoint_id: StringName) -> Dictionary:
+	var checkpoint := DefinitionRegistry.get_checkpoint(checkpoint_id)
+	if checkpoint == null:
+		return _failure("复活点无效")
+	var checkpoint_map := DefinitionRegistry.get_map(checkpoint.map_id)
+	if checkpoint_map == null:
+		return _failure("复活点地图无效")
+	var location := get_active_world_location()
+	location["current_region_id"] = String(checkpoint_map.region_id)
+	if StringName(String(location.get("active_checkpoint_id", ""))) == checkpoint_id:
+		return {"ok": true, "changed": false, "message": "当前复活点"}
+	var activated := location.get("activated_checkpoint_ids", []) as Array
+	if String(checkpoint_id) not in activated:
+		activated.append(String(checkpoint_id))
+	location["active_checkpoint_id"] = String(checkpoint_id)
+	location["activated_checkpoint_ids"] = activated
+	_active_profile["world_location"] = location
+	var save_result := save_now(&"checkpoint")
+	if not save_result.ok:
+		return save_result
+	return {"ok": true, "changed": true, "message": "复活点已激活"}
+
+
+func _normalize_location(raw: Variant) -> Dictionary:
+	var world := _normalize_world_location(raw, 4)
+	return {
+		"area_id": world.continue_map_id,
+		"safe_spawn_id": world.continue_spawn_point_id,
+	}
 
 
 func _rebuild_index_from_profiles() -> Dictionary:
@@ -852,14 +984,14 @@ func _normalize_slot(source: Dictionary, slot_index: int) -> Dictionary:
 
 func _slot_summary(profile: Dictionary) -> Dictionary:
 	var progression := profile.get("progression", {}) as Dictionary
-	var location := profile.get("location", {}) as Dictionary
+	var location := profile.get("world_location", _default_world_location()) as Dictionary
 	return {
 		"slot": int(profile.slot),
 		"profile_id": String(profile.profile_id),
 		"name": String(profile.name),
 		"profession_id": String(profile.profession_id),
 		"level": maxi(int(progression.get("level", 1)), 1),
-		"area_id": String(location.get("area_id", DEFAULT_AREA_ID)),
+		"area_id": String(location.get("continue_map_id", DEFAULT_MAP_ID)),
 		"play_time_seconds": maxi(int(profile.get("play_time_seconds", 0)), 0),
 		"created_at": int(profile.get("created_at", 0)),
 		"updated_at": int(profile.get("updated_at", 0)),

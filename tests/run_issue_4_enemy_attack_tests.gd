@@ -21,6 +21,7 @@ func _run() -> void:
 	await _test_attack_interruptions()
 	await _test_death_and_reset_cleanup()
 	await _test_target_invalidation()
+	await _test_local_aggro_reset()
 	await _test_attack_cooldown()
 	await _test_encounter_respawn_cleanup()
 	_release_inputs()
@@ -229,6 +230,22 @@ func _test_target_invalidation() -> void:
 		and not enemy.is_attack_hitbox_active(),
 		"目标失效会清理攻击提示和 Hitbox"
 	)
+	await _destroy_world()
+
+
+func _test_local_aggro_reset() -> void:
+	var actors := await _create_combat_world(GRUNT_DEFINITION)
+	var enemy := actors.enemy as GroundedEnemyController
+	await _wait_for_phase(enemy, GroundedEnemyController.AttackPhase.STARTUP)
+	enemy.global_position.x = 180.0
+	var disengage_position := enemy.global_position
+	enemy.reset_aggro_at_current_position()
+	_expect(enemy.current_state == GroundedEnemyController.State.IDLE, "清除仇恨后敌人立即进入空闲状态")
+	_expect(enemy.global_position.is_equal_approx(disengage_position), "清除仇恨不会把敌人传回原出生点")
+	_expect(not enemy.is_engaged_with_target(), "清除仇恨后敌人不再追逐目标")
+	_expect(not enemy.is_attack_hitbox_active(), "清除仇恨会关闭正在进行的攻击 Hitbox")
+	await _physics_frames(4)
+	_expect(absf(enemy.global_position.x - disengage_position.x) < 1.0, "丢失仇恨后敌人先在原地停留")
 	await _destroy_world()
 
 

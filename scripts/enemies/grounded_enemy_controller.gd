@@ -42,6 +42,7 @@ var _attack_cooldown_timer := 0.0
 var _attack_hitbox_active := false
 var _current_attack_phase := AttackPhase.NONE
 var _target_acquired := false
+var _target_detection_armed := true
 var _drops_emitted := false
 var _defeated_emitted := false
 var _death_pending := false
@@ -136,6 +137,25 @@ func is_engaged_with_target() -> bool:
 	if not visible or _target == null or not is_instance_valid(_target):
 		return false
 	return current_state in [State.CHASE, State.ATTACK, State.HIT, State.JUMP_CHASE]
+
+
+func reset_aggro_at_current_position() -> void:
+	if current_state == State.DEAD or _death_pending:
+		return
+	_target_acquired = false
+	_target_detection_armed = false
+	_spawn_position = global_position
+	_patrol_left_x = _spawn_position.x - _patrol_range()
+	_patrol_right_x = _spawn_position.x + _patrol_range()
+	velocity = Vector2.ZERO
+	_idle_timer = _idle_time()
+	_hit_stun_timer = 0.0
+	_clear_edge_drop_commitment()
+	_clear_jump_chase()
+	_last_target_surface_id = &""
+	_cancel_attack()
+	current_state = State.IDLE
+	queue_redraw()
 
 
 func get_attack_phase() -> AttackPhase:
@@ -242,11 +262,8 @@ func _update_patrol() -> void:
 
 
 func _update_chase() -> void:
-	if not _target_is_on_current_map():
-		_target_acquired = false
-		_clear_edge_drop_commitment()
-		_clear_jump_chase()
-		current_state = State.RETURN_HOME
+	if not _target_is_on_current_map() or not _can_keep_target() or _outside_leash():
+		reset_aggro_at_current_position()
 		return
 
 	if _edge_drop_committed:
@@ -438,13 +455,19 @@ func _landed_on_jump_target_surface() -> bool:
 func _finish_jump_chase() -> void:
 	_clear_jump_chase(false)
 	_jump_retry_timer = maxf(definition.jump_retry_delay, 0.0)
-	current_state = State.CHASE if _target_is_on_current_map() else State.RETURN_HOME
+	if _target_is_on_current_map() and _can_keep_target() and not _outside_leash():
+		current_state = State.CHASE
+	else:
+		reset_aggro_at_current_position()
 
 
 func _fail_jump_chase() -> void:
 	_clear_jump_chase(false)
 	_jump_retry_timer = maxf(definition.jump_retry_delay, 0.0)
-	current_state = State.CHASE if _target_is_on_current_map() else State.RETURN_HOME
+	if _target_is_on_current_map() and _can_keep_target() and not _outside_leash():
+		current_state = State.CHASE
+	else:
+		reset_aggro_at_current_position()
 
 
 func _clear_jump_chase(clear_retry := true) -> void:
@@ -500,10 +523,8 @@ func _update_attack(delta: float) -> void:
 		_cancel_attack()
 		current_state = State.CHASE
 		return
-	if not _target_is_on_current_map():
-		_target_acquired = false
-		_cancel_attack()
-		current_state = State.RETURN_HOME
+	if not _target_is_on_current_map() or not _can_keep_target() or _outside_leash():
+		reset_aggro_at_current_position()
 		return
 
 	_attack_elapsed += delta
@@ -526,7 +547,10 @@ func _update_attack(delta: float) -> void:
 	if _attack_elapsed >= total_duration:
 		_cancel_attack()
 		_attack_cooldown_timer = maxf(attack.cooldown_time, 0.0)
-		current_state = State.CHASE if _target_is_on_current_map() else State.RETURN_HOME
+		if _target_is_on_current_map() and _can_keep_target() and not _outside_leash():
+			current_state = State.CHASE
+		else:
+			reset_aggro_at_current_position()
 
 
 func _attack_metadata(attack: EnemyMeleeAttackDefinition) -> Dictionary:
@@ -752,17 +776,19 @@ func _update_hit(delta: float) -> void:
 	if _hit_stun_timer == 0.0:
 		if _death_pending or _health <= 0:
 			_enter_dead()
-		elif _target_acquired and _target_is_on_current_map():
+		elif _target_acquired and _target_is_on_current_map() and _can_keep_target() and not _outside_leash():
 			current_state = State.CHASE
-		elif absf(global_position.x - _spawn_position.x) > _patrol_range():
-			current_state = State.RETURN_HOME
 		else:
-			_idle_timer = _idle_time()
-			current_state = State.IDLE
+			reset_aggro_at_current_position()
 
 
 func _can_detect_target() -> bool:
-	return _target_in_detection(false)
+	var detected := _target_in_detection(false)
+	if not _target_detection_armed:
+		if not detected:
+			_target_detection_armed = true
+		return false
+	return detected
 
 
 func _can_keep_target() -> bool:
@@ -946,6 +972,7 @@ func reset() -> void:
 	_hit_flash_timer = 0.0
 	_attack_cooldown_timer = 0.0
 	_target_acquired = false
+	_target_detection_armed = true
 	_drops_emitted = false
 	_defeated_emitted = false
 	_death_pending = false

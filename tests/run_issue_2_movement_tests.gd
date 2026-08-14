@@ -182,6 +182,15 @@ func _test_drop_through() -> void:
 	await _physics_frames(18)
 	_expect(player.get_collision_mask_value(3), "平台下落结束后恢复单向平台碰撞")
 	_expect(player.global_position.y > start_y + 15.0, "角色实际穿过当前单向平台")
+	await _wait_until_grounded(player)
+	Input.action_release(&"interact_down")
+	await physics_frame
+	Input.action_press(&"interact_down")
+	await physics_frame
+	Input.action_release(&"interact_down")
+	Input.action_press(&"move_right")
+	await _physics_frames(4)
+	_expect(player.current_state == Player.State.WALK and player.velocity.x > 0.0, "下穿平台后再次下蹲仍可起身移动")
 	await _destroy_world()
 
 	player = await _create_grounded_player()

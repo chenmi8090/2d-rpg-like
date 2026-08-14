@@ -1,0 +1,61 @@
+[gd_resource type="Resource" script_class="MapDefinition" load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/map_definition.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/world/map_entry_definition.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/world/portal_definition.gd" id="3"]
+
+[sub_resource type="Resource" id="EntryDefault"]
+script = ExtResource("2")
+id = &"from_test_level"
+position = Vector2(100, 560)
+facing_direction = 1.0
+
+[sub_resource type="Resource" id="EntryA"]
+script = ExtResource("2")
+id = &"from_field_passage_2"
+position = Vector2(1450, 560)
+facing_direction = -1.0
+
+[sub_resource type="Resource" id="EntryB"]
+script = ExtResource("2")
+id = &"from_field_passage_3"
+position = Vector2(2700, 560)
+facing_direction = -1.0
+
+[sub_resource type="Resource" id="PortalReturn"]
+script = ExtResource("3")
+id = &"return_test_level"
+position = Vector2(100, 560)
+interaction_radius = 82.0
+target_map_id = &"test_level"
+target_entry_id = &"from_passage_1"
+interaction_prompt = "按 W 返回 战斗试验场"
+
+[sub_resource type="Resource" id="PortalA"]
+script = ExtResource("3")
+id = &"portal_a"
+position = Vector2(1450, 560)
+interaction_radius = 82.0
+target_map_id = &"field_passage_2"
+target_entry_id = &"from_field_passage_1"
+interaction_prompt = "按 W 前往 野外通道-2"
+
+[sub_resource type="Resource" id="PortalB"]
+script = ExtResource("3")
+id = &"portal_b"
+position = Vector2(2700, 560)
+interaction_radius = 82.0
+target_map_id = &"field_passage_3"
+target_entry_id = &"from_field_passage_1"
+interaction_prompt = "按 W 前往 野外通道-3"
+
+[resource]
+script = ExtResource("1")
+id = &"field_passage_1"
+region_id = &"first_region"
+display_name = "野外通道-1"
+scene_path = "res://scenes/levels/maps/field_passage_1.tscn"
+default_entry_id = &"from_test_level"
+camera_bounds = Rect2(-100, -100, 3000, 820)
+entries = Array[ExtResource("2")]([SubResource("EntryDefault"), SubResource("EntryA"), SubResource("EntryB")])
+portals = Array[ExtResource("3")]([SubResource("PortalReturn"), SubResource("PortalA"), SubResource("PortalB")])
