@@ -149,13 +149,16 @@ The current backpack only manages unique equipment instances, while non-equipmen
 Planned scope:
 
 - Add four fixed backpack tabs in this order: equipment, consumables, other items, and quest items.
-- Keep equipment as unique instances and store non-equipment items as non-negative stack quantities per character.
+- Give every tab 40 initially unlocked slots displayed as four rows of ten, including visible empty slots.
+- Keep equipment as unique instances and store non-equipment items in bounded per-slot stacks.
+- Persist capacity separately for each tab so later systems can expand them without changing item ownership rules.
 - Define stable, data-driven stackable-item identities, categories, player-facing names, descriptions, and quantity limits.
 - Place materials such as `stardust_fragment` in the other-item tab.
 - Replace the hard-coded stardust counter with generic stackable-item collection, quantity, and removal APIs while preserving compatibility wrappers.
 - Provide a minimal functional categorized backpack without treating the work as a broader interface redesign.
 - Migrate existing `stardust_fragment` save quantities without loss or cross-character contamination.
 - Preserve pickup cleanup, autosave, backup recovery, map travel, death, respawn, and reset behavior.
+- Reject or retain pickups safely when the matching tab has no capacity instead of silently deleting items.
 - Extend automated coverage and run the full existing regression suite.
 
 ## Remaining vertical-slice backlog
@@ -163,6 +166,7 @@ Planned scope:
 These items remain later milestones unless promoted into a reviewed Issue:
 
 - Add consumable use effects after categorized storage is stable.
+- Add reviewed backpack-expansion items or services after per-tab capacity persistence is stable.
 - Add a safe town, NPCs, dialogue, shops, currency, quests, and quest tracking.
 - Add equipment reinforcement, crafting, storage, and other long-term equipment-growth functions as separately reviewed systems.
 - Add moving platforms, ladders, ropes, and other traversal types currently reserved by the controls.
