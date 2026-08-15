@@ -9,17 +9,17 @@ signal experience_reward_accepted(amount: int, enemy: GroundedEnemyController, c
 @export var enemy_scene: PackedScene
 @export var target_path: NodePath
 @export var enemies_container_path: NodePath
+@export_range(0.0, 300.0, 0.1) var respawn_interval := 8.0
 
 var _target: Node2D
 var _enemies_container: Node2D
 var _owned_enemies: Array[GroundedEnemyController] = []
 var _enemy_to_group: Dictionary = {}
 var _enemy_to_spawn_index: Dictionary = {}
-var _enemy_to_spawn: Dictionary = {}
 var _alive_enemies: Dictionary = {}
 var _respawn_remaining: Dictionary = {}
 var _group_alive_counts: Array[int] = []
-var _built := false
+var _encounter_generation := 0
 
 
 func _ready() -> void:
@@ -27,30 +27,63 @@ func _ready() -> void:
 	_enemies_container = get_node_or_null(enemies_container_path) as Node2D
 	if _enemies_container == null:
 		_enemies_container = self
-	_build_encounter.call_deferred()
+	if encounter_definition != null:
+		_build_encounter.call_deferred()
 
 
 func _process(delta: float) -> void:
 	if _respawn_remaining.is_empty():
 		return
 	for enemy in _respawn_remaining.keys():
-		if enemy == null or not is_instance_valid(enemy):
+		if enemy == null or not is_instance_valid(enemy) or not _owns_enemy(enemy):
 			_respawn_remaining.erase(enemy)
 			continue
 		var remaining := maxf(float(_respawn_remaining[enemy]) - delta, 0.0)
 		if remaining == 0.0:
 			_respawn_remaining.erase(enemy)
-			_respawn_enemy.call_deferred(enemy)
+			_respawn_enemy.call_deferred(enemy, _encounter_generation)
 		else:
 			_respawn_remaining[enemy] = remaining
 
 
+func load_encounter(definition: EncounterDefinition, clear_existing := true) -> void:
+	if clear_existing:
+		clear_encounter()
+	encounter_definition = definition
+	_build_encounter()
+
+
+func clear_encounter() -> void:
+	_encounter_generation += 1
+	var old_enemies := _owned_enemies.duplicate()
+	_owned_enemies.clear()
+	_enemy_to_group.clear()
+	_enemy_to_spawn_index.clear()
+	_alive_enemies.clear()
+	_respawn_remaining.clear()
+	_group_alive_counts.clear()
+
+	for enemy in old_enemies:
+		if enemy == null or not is_instance_valid(enemy):
+			continue
+		if enemy.defeated.is_connected(_on_enemy_defeated):
+			enemy.defeated.disconnect(_on_enemy_defeated)
+		enemy.set_physics_process(false)
+		enemy.set_process(false)
+		enemy.visible = false
+		if enemy.get_parent() != null:
+			enemy.get_parent().remove_child(enemy)
+		enemy.queue_free()
+	alive_count_changed.emit(0, 0)
+
+
 func _build_encounter() -> void:
-	if _built:
+	if encounter_definition == null:
+		alive_count_changed.emit(0, 0)
 		return
-	_built = true
-	if encounter_definition == null or enemy_scene == null:
-		push_warning("EncounterManager requires an EncounterDefinition and enemy scene.")
+	if enemy_scene == null:
+		push_warning("EncounterManager requires an enemy scene.")
+		alive_count_changed.emit(0, 0)
 		return
 
 	_group_alive_counts.resize(encounter_definition.groups.size())
@@ -83,14 +116,13 @@ func _spawn_enemy(spawn: EnemySpawnDefinition, group_index: int, spawn_index: in
 	_owned_enemies.append(enemy)
 	_enemy_to_group[enemy] = group_index
 	_enemy_to_spawn_index[enemy] = spawn_index
-	_enemy_to_spawn[enemy] = spawn
 	_alive_enemies[enemy] = true
 	_group_alive_counts[group_index] += 1
 	_enemies_container.add_child(enemy)
 
 
 func _on_enemy_defeated(enemy: GroundedEnemyController, source: Node) -> void:
-	if not _alive_enemies.has(enemy) or _respawn_remaining.has(enemy):
+	if not _owns_enemy(enemy) or not _alive_enemies.has(enemy) or _respawn_remaining.has(enemy):
 		return
 	_alive_enemies.erase(enemy)
 
@@ -105,8 +137,7 @@ func _on_enemy_defeated(enemy: GroundedEnemyController, source: Node) -> void:
 		experience_reward_accepted.emit(reward, enemy, credited_player, group_index, spawn_index)
 
 	enemy.visible = false
-	var spawn := _enemy_to_spawn.get(enemy) as EnemySpawnDefinition
-	_respawn_remaining[enemy] = maxf(spawn.respawn_delay, 0.0) if spawn != null else 0.0
+	_respawn_remaining[enemy] = maxf(respawn_interval, 0.0)
 	alive_count_changed.emit(get_alive_count(), _owned_enemies.size())
 
 
@@ -122,8 +153,14 @@ func _resolve_credit_player(source: Node) -> Player:
 	return null
 
 
-func _respawn_enemy(enemy: GroundedEnemyController) -> void:
-	if enemy == null or not is_instance_valid(enemy) or _alive_enemies.has(enemy):
+func _respawn_enemy(enemy: GroundedEnemyController, generation: int) -> void:
+	if (
+		generation != _encounter_generation
+		or enemy == null
+		or not is_instance_valid(enemy)
+		or not _owns_enemy(enemy)
+		or _alive_enemies.has(enemy)
+	):
 		return
 	var group_index := int(_enemy_to_group.get(enemy, -1))
 	if group_index < 0 or group_index >= _group_alive_counts.size():
@@ -153,6 +190,14 @@ func reset_encounter() -> void:
 		_alive_enemies[enemy] = true
 		enemy.reset()
 	alive_count_changed.emit(get_alive_count(), _owned_enemies.size())
+
+
+func owns_enemy(enemy: GroundedEnemyController) -> bool:
+	return _owns_enemy(enemy)
+
+
+func _owns_enemy(enemy: GroundedEnemyController) -> bool:
+	return enemy != null and is_instance_valid(enemy) and _enemy_to_group.has(enemy)
 
 
 func get_owned_enemies() -> Array[GroundedEnemyController]:

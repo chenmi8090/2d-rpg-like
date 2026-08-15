@@ -233,11 +233,11 @@ func _test_enemy_hurt_flash_expiry_death_reset_and_respawn_cleanup() -> void:
 	manager.enemy_scene = ENEMY_SCENE
 	manager.target_path = NodePath("../Player")
 	manager.enemies_container_path = NodePath("../Enemies")
+	manager.respawn_interval = 0.08
 	var spawn := EnemySpawnDefinition.new()
 	spawn.enemy_definition = GRUNT_DEFINITION
 	spawn.local_position = Vector2(0.0, FLOOR_Y)
 	spawn.facing_direction = 1.0
-	spawn.respawn_delay = 0.08
 	var group := EnemyGroupDefinition.new()
 	group.spawns = [spawn]
 	var encounter := EncounterDefinition.new()

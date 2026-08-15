@@ -1,8 +1,9 @@
-[gd_resource type="Resource" script_class="MapDefinition" load_steps=10 format=3]
+[gd_resource type="Resource" script_class="MapDefinition" load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/map_definition.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/world/map_entry_definition.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/world/portal_definition.gd" id="3"]
+[ext_resource type="Resource" path="res://resources/encounters/field_passage_1_encounter.tres" id="4"]
 
 [sub_resource type="Resource" id="EntryDefault"]
 script = ExtResource("2")
@@ -57,5 +58,6 @@ display_name = "野外通道-1"
 scene_path = "res://scenes/levels/maps/field_passage_1.tscn"
 default_entry_id = &"from_test_level"
 camera_bounds = Rect2(-100, -100, 3000, 820)
-entries = Array[ExtResource("2")]([SubResource("EntryDefault"), SubResource("EntryA"), SubResource("EntryB")])
+encounter_definition = ExtResource("4")
+entries =Array[ExtResource("2")]([SubResource("EntryDefault"), SubResource("EntryA"), SubResource("EntryB")])
 portals = Array[ExtResource("3")]([SubResource("PortalReturn"), SubResource("PortalA"), SubResource("PortalB")])

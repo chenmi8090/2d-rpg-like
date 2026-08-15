@@ -1,10 +1,9 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/test_level.gd" id="1_level"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="2_player"]
 [ext_resource type="PackedScene" path="res://scenes/enemies/patrol_enemy.tscn" id="3_enemy"]
 [ext_resource type="Script" path="res://scripts/encounters/encounter_manager.gd" id="4_encounter_manager"]
-[ext_resource type="Resource" path="res://resources/encounters/test_encounter.tres" id="5_encounter"]
 [ext_resource type="Script" path="res://scripts/navigation/platform_navigation_registry.gd" id="6_platform_nav"]
 
 [node name="TestLevel" type="Node2D"]
@@ -28,7 +27,6 @@ position = Vector2(80, 550)
 
 [node name="EncounterManager" type="Node2D" parent="."]
 script = ExtResource("4_encounter_manager")
-encounter_definition = ExtResource("5_encounter")
 enemy_scene = ExtResource("3_enemy")
 target_path = NodePath("../Player")
 enemies_container_path = NodePath("../Enemies")

@@ -1,9 +1,10 @@
-[gd_resource type="Resource" script_class="MapDefinition" load_steps=10 format=3]
+[gd_resource type="Resource" script_class="MapDefinition" load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/world/map_definition.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/world/map_entry_definition.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/world/portal_definition.gd" id="3"]
 [ext_resource type="Script" path="res://scripts/world/checkpoint_definition.gd" id="4"]
+[ext_resource type="Resource" path="res://resources/encounters/test_encounter.tres" id="5"]
 
 [sub_resource type="Resource" id="EntryStart"]
 script = ExtResource("2")
@@ -43,6 +44,7 @@ display_name = "战斗试验场"
 scene_path = "res://scenes/levels/maps/test_level_map.tscn"
 default_entry_id = &"start"
 camera_bounds = Rect2(-370, -100, 3670, 820)
-entries = Array[ExtResource("2")]([SubResource("EntryStart"), SubResource("EntryFromPassage")])
+encounter_definition = ExtResource("5")
+entries =Array[ExtResource("2")]([SubResource("EntryStart"), SubResource("EntryFromPassage")])
 portals = Array[ExtResource("3")]([SubResource("PortalPassage")])
 checkpoints = Array[ExtResource("4")]([SubResource("CheckpointDefault")])

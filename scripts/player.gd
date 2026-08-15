@@ -694,9 +694,17 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	return {"ok": true, "message": ""}
 
 
-func apply_safe_spawn(spawn_position: Vector2) -> void:
+func apply_safe_spawn(spawn_position: Vector2, preserve_horizontal_movement := false) -> void:
 	_spawn_position = spawn_position
 	global_position = spawn_position
+	if preserve_horizontal_movement:
+		velocity.y = 0.0
+		_jump_buffer_timer = 0.0
+		_coyote_timer = 0.0
+		_jump_consumed = false
+		_drop_through_timer = 0.0
+		set_collision_mask_value(ONE_WAY_LAYER, true)
+		return
 	suppress_gameplay_input()
 
 

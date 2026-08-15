@@ -62,22 +62,15 @@ func _test_map_runtime() -> void:
 	await process_frame
 	_expect(level.get_area_id() == &"test_level", "gameplay shell 默认载入战斗试验场")
 	var player := level.get_node("Player") as Player
-	var enemies: Array[GroundedEnemyController] = level._encounter_manager.get_owned_enemies()
-	if not enemies.is_empty():
-		var enemy := enemies[0]
-		enemy.current_state = GroundedEnemyController.State.CHASE
-		enemy.global_position.x += 75.0
-		var enemy_position := enemy.global_position
-		var enemy_health := enemy._health
-		var transition_result: Dictionary = level.load_world_map(&"field_passage_1", &"from_test_level")
-		_expect(transition_result.ok, "切图请求成功")
-		_expect(not enemy.is_engaged_with_target(), "切换地图会清除存活怪物仇恨")
-		_expect(enemy.global_position.is_equal_approx(enemy_position), "切图清仇恨不会传送怪物")
-		_expect(enemy._health == enemy_health and enemy.visible, "切图清仇恨不会治疗或复活怪物")
-	else:
-		level.load_world_map(&"field_passage_1", &"from_test_level")
+	var old_enemies: Array[GroundedEnemyController] = level._encounter_manager.get_owned_enemies()
+	var transition_result: Dictionary = level.load_world_map(&"field_passage_1", &"from_test_level")
+	_expect(transition_result.ok, "切图请求成功")
+	_expect(level._encounter_manager.get_capacity() == 6, "切图后只建立目标地图遭遇")
 	_expect(level.get_area_id() == &"field_passage_1", "切图后当前地图 ID 更新")
 	_expect(player.global_position.is_equal_approx(Vector2(100, 560)), "目标 entry 决定玩家落点")
+	await process_frame
+	for enemy in old_enemies:
+		_expect(not is_instance_valid(enemy), "切换地图会移除来源地图怪物")
 	player.global_position = Vector2(1450, 560)
 	level._portal_transition_locked = false
 	level._update_world_interaction()

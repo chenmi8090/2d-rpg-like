@@ -172,6 +172,26 @@ static func validate_world() -> Dictionary:
 				return {"ok": false, "message": "条件传送门缺少锁定提示"}
 		if not ResourceLoader.exists(map_definition.scene_path, "PackedScene"):
 			return {"ok": false, "message": "地图场景不存在"}
+		var encounter_validation := _validate_encounter(map_definition.encounter_definition)
+		if not encounter_validation.ok:
+			return encounter_validation
+	return {"ok": true, "message": ""}
+
+
+static func _validate_encounter(encounter: EncounterDefinition) -> Dictionary:
+	if encounter == null:
+		return {"ok": true, "message": ""}
+	for group in encounter.groups:
+		if group == null:
+			return {"ok": false, "message": "遭遇包含无效敌人组"}
+		for spawn in group.spawns:
+			if (
+				spawn == null
+				or spawn.enemy_definition == null
+				or not spawn.local_position.is_finite()
+				or is_zero_approx(spawn.facing_direction)
+			):
+				return {"ok": false, "message": "遭遇包含无效敌人出生点"}
 	return {"ok": true, "message": ""}
 
 

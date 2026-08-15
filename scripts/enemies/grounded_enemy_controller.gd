@@ -792,7 +792,24 @@ func _can_detect_target() -> bool:
 
 
 func _can_keep_target() -> bool:
-	return _target_in_detection(true)
+	if _target_in_detection(true):
+		return true
+	if not _target_acquired or definition == null or not definition.can_chase_jump:
+		return false
+	var current_surface := _current_navigation_surface()
+	var target_surface := _target_navigation_surface()
+	if current_surface == null or target_surface == null:
+		return false
+	if current_surface.id == target_surface.id:
+		return _target is CharacterBody2D and not (_target as CharacterBody2D).is_on_floor()
+	var margin := maxf(definition.jump_landing_margin, definition.body_radius + 2.0)
+	return not _platform_navigation.find_nearest_route(
+		current_surface.id,
+		target_surface.id,
+		global_position.x,
+		_target_navigation_position().x,
+		margin
+	).is_empty()
 
 
 func _target_in_detection(expanded: bool) -> bool:

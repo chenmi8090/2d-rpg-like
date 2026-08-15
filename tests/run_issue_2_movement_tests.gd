@@ -20,6 +20,7 @@ func _run() -> void:
 	await _test_jump_buffer()
 	await _test_air_control_and_landing()
 	await _test_drop_through()
+	await _test_portal_movement_preservation()
 	await _test_input_safety()
 	_release_inputs()
 	if _failures.is_empty():
@@ -199,6 +200,26 @@ func _test_drop_through() -> void:
 	await physics_frame
 	_expect(player.is_on_floor() and player.current_state == Player.State.CROUCH, "S 加 Space 在普通地面只进入下蹲")
 	_expect(player.velocity.y >= 0.0 and player.get_collision_mask_value(3), "普通地面不会被平台下落操作穿透")
+	await _destroy_world()
+
+
+func _test_portal_movement_preservation() -> void:
+	var player := await _create_grounded_player()
+	Input.action_press(&"move_right")
+	await physics_frame
+	Input.action_release(&"move_right")
+	await physics_frame
+	Input.action_press(&"move_right")
+	await _physics_frames(12)
+	_expect(player.current_state == Player.State.SPRINT, "传送保留测试先进入冲刺")
+	player.apply_safe_spawn(player.global_position + Vector2(100.0, 0.0), true)
+	await _wait_until_grounded(player)
+	await _physics_frames(3)
+	_expect(
+		player.current_state == Player.State.SPRINT
+		and player.velocity.x > player.move_speed,
+		"传送式安全落点保留水平冲刺状态"
+	)
 	await _destroy_world()
 
 

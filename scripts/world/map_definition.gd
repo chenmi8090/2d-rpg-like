@@ -8,6 +8,7 @@ extends Resource
 @export var default_entry_id: StringName
 @export var allow_continue := true
 @export var camera_bounds := Rect2(-400.0, -200.0, 3800.0, 920.0)
+@export var encounter_definition: EncounterDefinition
 @export var entries: Array[MapEntryDefinition] = []
 @export var portals: Array[PortalDefinition] = []
 @export var checkpoints: Array[CheckpointDefinition] = []

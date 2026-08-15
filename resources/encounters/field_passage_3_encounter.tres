@@ -1,0 +1,51 @@
+[gd_resource type="Resource" script_class="EncounterDefinition" load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://scripts/encounters/encounter_definition.gd" id="1_encounter"]
+[ext_resource type="Script" path="res://scripts/encounters/enemy_group_definition.gd" id="2_group"]
+[ext_resource type="Script" path="res://scripts/encounters/enemy_spawn_definition.gd" id="3_spawn"]
+[ext_resource type="Resource" path="res://resources/enemies/patrol_grunt_definition.tres" id="4_grunt"]
+[ext_resource type="Resource" path="res://resources/enemies/heavy_guard_definition.tres" id="5_heavy"]
+
+[sub_resource type="Resource" id="Spawn1"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("5_heavy")
+local_position = Vector2(450, 640)
+facing_direction = 1.0
+
+[sub_resource type="Resource" id="Spawn2"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("4_grunt")
+local_position = Vector2(660, 560)
+facing_direction = -1.0
+
+[sub_resource type="Resource" id="Spawn3"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("4_grunt")
+local_position = Vector2(1050, 500)
+facing_direction = 1.0
+
+[sub_resource type="Resource" id="Spawn4"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("5_heavy")
+local_position = Vector2(1515, 550)
+facing_direction = -1.0
+
+[sub_resource type="Resource" id="Spawn5"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("5_heavy")
+local_position = Vector2(1770, 640)
+facing_direction = 1.0
+
+[sub_resource type="Resource" id="Spawn6"]
+script = ExtResource("3_spawn")
+enemy_definition = ExtResource("5_heavy")
+local_position = Vector2(2485, 550)
+facing_direction = -1.0
+
+[sub_resource type="Resource" id="Group"]
+script = ExtResource("2_group")
+spawns = Array[ExtResource("3_spawn")]([SubResource("Spawn1"), SubResource("Spawn2"), SubResource("Spawn3"), SubResource("Spawn4"), SubResource("Spawn5"), SubResource("Spawn6")])
+
+[resource]
+script = ExtResource("1_encounter")
+groups = Array[ExtResource("2_group")]([SubResource("Group")])

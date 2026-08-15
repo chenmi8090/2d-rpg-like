@@ -147,7 +147,11 @@ func get_safe_spawn_position(spawn_id: StringName) -> Vector2:
 	return entry.position if entry != null else Vector2.INF
 
 
-func load_world_map(map_id: StringName, entry_id: StringName) -> Dictionary:
+func load_world_map(
+	map_id: StringName,
+	entry_id: StringName,
+	preserve_player_horizontal_movement := false
+) -> Dictionary:
 	var definition := DefinitionRegistry.get_map(map_id)
 	if definition == null:
 		return {"ok": false, "message": "地图定义无效"}
@@ -159,18 +163,21 @@ func load_world_map(map_id: StringName, entry_id: StringName) -> Dictionary:
 	var packed_scene := load(definition.scene_path) as PackedScene
 	if packed_scene == null:
 		return {"ok": false, "message": "地图场景无法载入"}
-	_reset_enemy_aggro()
+	var new_layout := packed_scene.instantiate() as Node2D
+	if new_layout == null:
+		return {"ok": false, "message": "地图场景根节点无效"}
+	_encounter_manager.clear_encounter()
+	_clear_drops()
 	_clear_world_map()
 	_map_definition = definition
-	_map_layout = packed_scene.instantiate() as Node2D
-	if _map_layout == null:
-		return {"ok": false, "message": "地图场景根节点无效"}
+	_map_layout = new_layout
 	_map_root.add_child(_map_layout)
 	_build_course_from_layout(_map_layout)
 	_build_world_markers()
 	_configure_player_camera(definition.camera_bounds)
-	_player.apply_safe_spawn(entry.position)
+	_player.apply_safe_spawn(entry.position, preserve_player_horizontal_movement)
 	_player.set_facing_direction(entry.facing_direction)
+	_encounter_manager.load_encounter(definition.encounter_definition, false)
 	_map_title_text.text = "%s / %s" % [
 		DefinitionRegistry.get_region(definition.region_id).display_name,
 		definition.display_name,
@@ -250,8 +257,6 @@ func _recover_from_checkpoint() -> void:
 	if not result.ok:
 		_show_reminder(_world_status_text, String(result.message))
 		return
-	_clear_drops()
-	_encounter_manager.reset_encounter()
 	_show_reminder(_world_status_text, "已从复活点恢复")
 
 
@@ -264,6 +269,8 @@ func _clear_drops() -> void:
 	for drop in _drops.get_children():
 		if drop.has_method("deactivate"):
 			drop.deactivate()
+		if drop.get_parent() != null:
+			drop.get_parent().remove_child(drop)
 		drop.queue_free()
 
 
@@ -294,6 +301,8 @@ func _on_node_added(node: Node) -> void:
 
 
 func _on_enemy_drop_requested(enemy: GroundedEnemyController, drop_rules: Array[EnemyDropRule]) -> void:
+	if not _encounter_manager.owns_enemy(enemy):
+		return
 	for rule in drop_rules:
 		var amount := _roll_drop_amount(rule)
 		for index in amount:
@@ -328,6 +337,8 @@ func _spawn_pickup(definition: CollectibleDefinition, origin: Vector2, index: in
 
 
 func _on_enemy_equipment_drop_requested(enemy: GroundedEnemyController, drop_rules: Array[EquipmentDropRule]) -> void:
+	if not _encounter_manager.owns_enemy(enemy):
+		return
 	var dropped_items: Array[EquipmentInstance] = []
 	for rule in drop_rules:
 		var item := _roll_equipment_drop(rule)
@@ -521,9 +532,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			_move_skill_selection(1)
 		get_viewport().set_input_as_handled()
 		return
-	if event.is_action_pressed("interact_up") and not echoed and _active_portal != null:
-		_use_active_portal()
-		get_viewport().set_input_as_handled()
+	if event.is_action_pressed("interact_up") and not echoed:
+		if _has_activatable_checkpoint():
+			_use_active_checkpoint()
+			get_viewport().set_input_as_handled()
+		elif _active_portal != null:
+			_use_active_portal()
+			get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("toggle_attributes") and not echoed:
 		_set_attributes_panel_visible(true)
 		get_viewport().set_input_as_handled()
@@ -1300,13 +1315,11 @@ func _update_world_interaction() -> void:
 		else:
 			_active_portal = null
 	_active_checkpoint = _nearest_checkpoint()
-	if _active_checkpoint != null:
-		var checkpoint_id := _active_checkpoint.id
-		var location := GameSession.get_active_world_location()
-		if StringName(String(location.get("active_checkpoint_id", ""))) != checkpoint_id:
-			var result := GameSession.activate_checkpoint(checkpoint_id)
-			_show_reminder(_world_status_text, String(result.get("message", "")))
 	_active_portal = null if _portal_transition_locked else _nearest_portal()
+	if _has_activatable_checkpoint():
+		_interaction_prompt_text.text = "按 W 激活 %s" % _active_checkpoint.display_name
+		_interaction_prompt_text.visible = true
+		return
 	if _active_portal == null:
 		_interaction_prompt_text.visible = false
 		return
@@ -1340,6 +1353,24 @@ func _nearest_checkpoint() -> CheckpointDefinition:
 	return nearest
 
 
+func _has_activatable_checkpoint() -> bool:
+	if _active_checkpoint == null:
+		return false
+	var location := GameSession.get_active_world_location()
+	return (
+		StringName(String(location.get("active_checkpoint_id", "")))
+		!= _active_checkpoint.id
+	)
+
+
+func _use_active_checkpoint() -> void:
+	if not _has_activatable_checkpoint():
+		return
+	var result := GameSession.activate_checkpoint(_active_checkpoint.id)
+	_show_reminder(_world_status_text, String(result.get("message", "")))
+	_update_world_interaction()
+
+
 func _use_active_portal() -> void:
 	if _active_portal == null or _portal_transition_locked:
 		return
@@ -1355,7 +1386,11 @@ func _use_active_portal() -> void:
 	_portal_transition_locked = true
 	_active_portal = null
 	_interaction_prompt_text.visible = false
-	var result := load_world_map(portal.target_map_id, portal.target_entry_id)
+	var result := load_world_map(
+		portal.target_map_id,
+		portal.target_entry_id,
+		true
+	)
 	if not result.ok:
 		_portal_transition_locked = false
 		_show_reminder(_world_status_text, String(result.message))
