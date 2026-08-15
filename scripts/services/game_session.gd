@@ -28,6 +28,14 @@ const GAMEPLAY_INPUT_ACTIONS: Array[StringName] = [
 	&"toggle_skills",
 	&"skill_slot_1",
 	&"skill_slot_2",
+	&"skill_slot_3",
+	&"skill_slot_4",
+	&"skill_slot_5",
+	&"skill_slot_6",
+	&"skill_slot_7",
+	&"skill_slot_8",
+	&"skill_slot_9",
+	&"skill_slot_10",
 	&"reset",
 ]
 const DEFAULT_AREA_ID := DEFAULT_MAP_ID
@@ -251,7 +259,7 @@ func create_character(slot_index: int, raw_name: String, profession_id: StringNa
 			"unspent_points": progression.starting_skill_points if progression != null else 0,
 			"ranks": {},
 		},
-		"skill_quickbar": {"slots": ["", ""]},
+		"skill_quickbar": {"slots": ["", "", "", "", "", "", "", "", "", ""]},
 		"equipment": equipment,
 		"world_location": _default_world_location(),
 		"meta": {"last_save_reason": "creation"},
@@ -663,14 +671,17 @@ func _normalize_skill_quickbar(
 	skills: Dictionary,
 	source_version: int
 ) -> Dictionary:
-	var default_slots := ["", ""]
+	var default_slots := ["", "", "", "", "", "", "", "", "", ""]
 	if source_version < 3:
 		return {"slots": default_slots}
 	var source := raw as Dictionary if raw is Dictionary else {}
 	var raw_slots := source.get("slots", []) as Array
 	var slots: Array[String] = []
 	var ranks := skills.get("ranks", {}) as Dictionary
+	var assigned_skill_ids: Dictionary = {}
 	for raw_skill_id in raw_slots:
+		if slots.size() >= default_slots.size():
+			break
 		var skill_id := StringName(String(raw_skill_id))
 		var definition := DefinitionRegistry.get_skill(skill_id)
 		if (
@@ -678,10 +689,12 @@ func _normalize_skill_quickbar(
 			or not definition.is_active()
 			or not definition.is_available_to_profession(profession_id)
 			or int(ranks.get(String(skill_id), 0)) <= 0
+			or assigned_skill_ids.has(skill_id)
 		):
 			slots.append("")
 		else:
 			slots.append(String(skill_id))
+			assigned_skill_ids[skill_id] = true
 	if slots.size() < default_slots.size():
 		slots.resize(default_slots.size())
 	return {"slots": slots}

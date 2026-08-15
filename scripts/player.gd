@@ -58,7 +58,7 @@ const CROUCH_CLEARANCE_MASK := 1
 const STARDUST_FRAGMENT_ID := &"stardust_fragment"
 const EQUIPMENT_MODIFIER_SOURCE := &"equipment"
 const PASSIVE_SKILL_MODIFIER_SOURCE := &"passive_skills"
-const DEFAULT_SKILL_QUICKBAR_SIZE := 2
+const DEFAULT_SKILL_QUICKBAR_SIZE := 10
 const PLAYER_ATTACK_PROJECTILE_SCENE := preload("res://scenes/combat/player_attack_projectile.tscn")
 
 @export var move_speed := 280.0
@@ -606,9 +606,34 @@ func set_skill_quickbar_slot(slot_index: int, skill_id: StringName) -> Dictionar
 		return {"ok": false, "message": "当前职业无法配置该技能"}
 	if get_skill_rank(skill_id) <= 0:
 		return {"ok": false, "message": "技能尚未学习"}
+	var moved_existing_binding := false
+	for existing_slot_index in _skill_quickbar.size():
+		if existing_slot_index != slot_index and _skill_quickbar[existing_slot_index] == skill_id:
+			_skill_quickbar[existing_slot_index] = &""
+			moved_existing_binding = true
 	_skill_quickbar[slot_index] = skill_id
 	skills_changed.emit()
-	return {"ok": true, "message": "快捷栏配置成功"}
+	return {
+		"ok": true,
+		"message": "快捷栏绑定已移动" if moved_existing_binding else "快捷栏配置成功",
+	}
+
+
+func move_skill_quickbar_slot(from_index: int, to_index: int) -> Dictionary:
+	if (
+		from_index < 0
+		or from_index >= _skill_quickbar.size()
+		or to_index < 0
+		or to_index >= _skill_quickbar.size()
+	):
+		return {"ok": false, "message": "技能快捷栏位置无效"}
+	if from_index == to_index:
+		return {"ok": true, "message": "快捷栏位置未变化"}
+	var source_skill := _skill_quickbar[from_index]
+	_skill_quickbar[from_index] = _skill_quickbar[to_index]
+	_skill_quickbar[to_index] = source_skill
+	skills_changed.emit()
+	return {"ok": true, "message": "快捷栏位置已交换"}
 
 
 func _default_skill_quickbar() -> Array[StringName]:
@@ -621,12 +646,8 @@ func _default_skill_quickbar() -> Array[StringName]:
 func _load_skill_quickbar(snapshot: Dictionary) -> void:
 	_skill_quickbar = _default_skill_quickbar()
 	var raw_slots := snapshot.get("slots", []) as Array
-	if raw_slots.size() > _skill_quickbar.size():
-		var previous_size := _skill_quickbar.size()
-		_skill_quickbar.resize(raw_slots.size())
-		for index in range(previous_size, _skill_quickbar.size()):
-			_skill_quickbar[index] = &""
-	for index in raw_slots.size():
+	var assigned_skill_ids: Dictionary = {}
+	for index in mini(raw_slots.size(), _skill_quickbar.size()):
 		var skill_id := StringName(String(raw_slots[index]))
 		var definition := DefinitionRegistry.get_skill(skill_id)
 		if (
@@ -634,8 +655,10 @@ func _load_skill_quickbar(snapshot: Dictionary) -> void:
 			and definition.is_active()
 			and definition.is_available_to_profession(get_profession_id())
 			and get_skill_rank(skill_id) > 0
+			and not assigned_skill_ids.has(skill_id)
 		):
 			_skill_quickbar[index] = skill_id
+			assigned_skill_ids[skill_id] = true
 
 
 func _rebuild_passive_skill_modifiers() -> void:

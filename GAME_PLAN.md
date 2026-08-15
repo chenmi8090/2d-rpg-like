@@ -67,7 +67,16 @@ The current game remains an endless combat and farming prototype. Clearing all v
 - Skill input, effects, projectiles, and cooldown state are handled safely across UI isolation, hit interruption, death, respawn, reset, save application, character changes, and scene exit.
 - Profession skills can define a single same-profession prerequisite and required rank; advanced skills cannot be learned or leave their prerequisite below the required rank.
 - The current mouse-driven skill panel groups base active, advanced active, and independent passive skills and shows prerequisite status with safe rank increase/decrease controls.
-- A full graphical branching skill tree, respec economy, and mouse-driven shortcut editing are not implemented.
+- A full graphical branching skill tree and respec economy are not implemented.
+
+### Combat skill quickbar - Issue #16
+
+- A compact top-centered quickbar uses two keyboard-style rows mapped to `1`-`5` and `6`-`0`.
+- Ten fixed active-skill slots show empty, ready, cooldown, and weapon-mismatch states without covering the character's combat area.
+- Learned active skills can be dragged from the `K` profession panel into the quickbar; passive and unlearned skills cannot be assigned.
+- Quickbar slots support mouse-driven move, swap, and right-click clear behavior.
+- Each skill can occupy only one shortcut; assigning it elsewhere moves the existing binding instead of duplicating it.
+- Shortcut assignments remain character-isolated, persist in saves, and safely expand older two-slot saves to ten slots.
 
 ### World maps and encounters - Issues #13-#14
 
@@ -91,7 +100,7 @@ The current game remains an endless combat and farming prototype. Clearing all v
 - Jump: `Space`
 - Light attack: `Z`
 - Heavy attack: `X`
-- Active skill slots: `1` / `2`
+- Active skill slots: `1`-`0` (top row `1`-`5`, bottom row `6`-`0`)
 - Profession skills: `K` (mouse-controlled rank `+` / `-` buttons)
 - Character status: `E`
 - Equipment backpack: `I`
@@ -114,10 +123,11 @@ Combat and movement inputs are isolated while interface panels are open. The cur
 | #9 | Complete | Airborne and platform-edge basic attacks with one attack per airborne cycle |
 | #10 | Complete | Repeatable equipment drops, qualities, rolled instances, pickups, cleanup, and farming stability |
 | #11 | Complete | Keyboard-first equipment inventory, comparison, equip/unequip, sorting, discard, and persistence |
-| #12 | Complete | Data-driven profession active-skill definitions, casting, cooldowns, ownership boundaries, and two temporary slots |
+| #12 | Complete | Data-driven profession active-skill definitions, casting, cooldowns, ownership boundaries, and the initial temporary slots |
 | #13 | Complete | World-map definitions, branching bidirectional travel, checkpoints, continue positions, and save migration |
 | #14 | Complete | Per-map encounters, unified respawn timing, map isolation, drop cleanup, and repeatable farming |
 | #15 | Complete | Advanced-skill prerequisites, protected rank reduction, legacy-save refunds, and clearer skill hierarchy |
+| #16 | Complete | Top two-row ten-slot skill quickbar, drag/drop assignment, unique bindings, cooldown states, and save migration |
 
 ## Compatibility rules for future work
 
@@ -132,21 +142,19 @@ Combat and movement inputs are isolated while interface panels are open. The cur
 - New save data must be versioned, migrated safely, and tested without writing to real player saves.
 - Temporary UI must remain clear and usable, but final art and complex presentation wait until gameplay systems stabilize.
 
-## Next milestone: learnable skill trees and profession growth
+## Next milestone: broader profession growth and skill content
 
-Issue #12 deliberately established the data boundaries required by a real skill tree but defaulted the first active skills to learned. The next milestone should convert that foundation into player-controlled progression without rewriting the generic casting state machine.
+Issues #12, #15, and #16 established learnable skill ranks, prerequisites, active-skill casting, and mouse-driven shortcut assignment. The next milestone should expand profession identity and content without rewriting those stable data and combat boundaries.
 
 Planned scope:
 
-- Define how skill points are earned and stored per character.
-- Add learnable active and passive skills with level costs and prerequisite validation.
-- Apply per-level skill values without mutating shared skill resources.
-- Add profession-specific branches while preserving permanent profession binding.
-- Build a keyboard-first skill-tree interface for inspecting, learning, and upgrading skills.
-- Add explicit shortcut-slot assignment separate from skill ownership.
-- Define a safe respec rule that cannot change profession or corrupt learned-skill dependencies.
-- Persist skill points, learned levels, and shortcut assignments with migration and character isolation.
-- Extend automated coverage and run the full Issue #1-#14 regression suite.
+- Add more profession-specific active and passive skills while preserving permanent profession binding.
+- Expand branches beyond the current single prerequisite chain without mutating shared skill resources.
+- Decide whether each profession needs a dedicated combat resource before adding resource-dependent skills.
+- Define a safe respec economy that cannot change profession or corrupt learned-skill dependencies.
+- Replace the lightweight hierarchy with a dedicated graphical skill tree when its UI scope is reviewed.
+- Continue persisting skill ranks and shortcut assignments with migration and character isolation.
+- Extend automated coverage and run the full existing regression suite for each reviewed Issue.
 
 ## Remaining vertical-slice backlog
 

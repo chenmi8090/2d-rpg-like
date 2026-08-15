@@ -60,7 +60,8 @@ func _run() -> void:
 	var first_quickbar := first_profile.get("skill_quickbar", {}) as Dictionary
 	_expect(
 		first_quickbar.get("slots", []) is Array
-		and (first_quickbar.get("slots", []) as Array) == ["", ""],
+		and (first_quickbar.get("slots", []) as Array).size() == 10
+		and (first_quickbar.get("slots", []) as Array).all(func(skill_id: Variant) -> bool: return String(skill_id).is_empty()),
 		"新角色创建独立主动技能快捷栏"
 	)
 	Input.action_press(&"move_left")
@@ -110,7 +111,11 @@ func _run() -> void:
 	_expect(second_player.get_profession_id() == &"star_seeker", "第二角色保持永久职业")
 	_expect(second_player.get_skill_points() == 0, "第二角色技能点与第一角色隔离")
 	_expect(second_player.get_skill_rank(&"blade_wave") == 0, "第二角色不会继承第一角色技能等级")
-	_expect(second_player.get_skill_quickbar() == [&"", &""], "第二角色不会继承第一角色技能快捷栏")
+	_expect(
+		second_player.get_skill_quickbar().size() == 10
+		and second_player.get_skill_quickbar().all(func(skill_id: StringName) -> bool: return skill_id == &""),
+		"第二角色不会继承第一角色技能快捷栏"
+	)
 	_expect(not second_player.can_equip(DefinitionRegistry.get_equipment(&"traveler_sword")), "观星者不能装备剑")
 	session.unbind_level(second_level)
 	second_player.queue_free()
@@ -180,7 +185,11 @@ func _run() -> void:
 	_expect(migrated_player.get_level() == 20, "旧档迁移保留已有角色等级")
 	_expect(migrated_player.get_skill_points() == 19, "旧档迁移按历史角色等级补发技能点")
 	_expect(migrated_player.get_skill_rank(&"blade_wave") == 0, "旧档迁移不保留 v3 之前伪造的技能等级")
-	_expect(migrated_player.get_skill_quickbar() == [&"", &""], "旧档迁移创建空主动技能快捷栏")
+	_expect(
+		migrated_player.get_skill_quickbar().size() == 10
+		and migrated_player.get_skill_quickbar().all(func(skill_id: StringName) -> bool: return skill_id == &""),
+		"旧档迁移创建十个空主动技能快捷栏"
+	)
 	_expect(session.save_now(&"migration_test").ok, "历史等级补点结果可以保存")
 	session.unbind_level(migrated_level)
 	migrated_player.queue_free()
@@ -230,7 +239,9 @@ func _run() -> void:
 	_expect(v3_player.get_skill_rank(&"power_strike") == 0, "v3 迁移清理不满足前置条件的进阶技能")
 	_expect(v3_player.get_skill_points() == 17, "v3 迁移返还无效进阶技能并补足历史等级点数")
 	_expect(
-		v3_player.get_skill_quickbar() == [&"blade_wave", &""],
+		v3_player.get_skill_quickbar().size() == 10
+		and v3_player.get_skill_quickbar()[0] == &"blade_wave"
+		and v3_player.get_skill_quickbar()[1] == &"",
 		"v3 迁移清理未满足前置条件的快捷栏技能"
 	)
 	session.unbind_level(v3_level)

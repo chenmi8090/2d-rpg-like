@@ -173,7 +173,13 @@ func _test_active_skill_runtime() -> void:
 		"slots": ["blade_wave", "power_strike", "", "blade_wave"],
 	}
 	_expect(player.apply_save_snapshot(profile).ok, "可载入已学习主动技能和快捷栏")
-	_expect(player.get_skill_quickbar().size() == 4, "快捷栏槽位数量可以由存档扩展")
+	_expect(
+		player.get_skill_quickbar().size() == 10
+		and player.get_skill_quickbar()[0] == &"blade_wave"
+		and player.get_skill_quickbar()[1] == &"power_strike"
+		and player.get_skill_quickbar()[3] == &"",
+		"四槽旧配置载入十槽快捷栏并清理重复技能绑定"
+	)
 	_expect(not player.can_cast_skill(&"star_bolt").ok, "错误职业主动技能不能施放")
 	player.current_state = Player.State.JUMP
 	player.velocity.y = -1.0
@@ -245,11 +251,18 @@ func _test_skill_window_ui() -> void:
 	_expect(player.get_skill_rank(&"blade_wave") == 1, "鼠标加号按钮通过权威接口学习选中技能")
 	_expect(player.get_skill_points() == points_before - 1, "成功学习技能消耗一点技能点")
 	_expect(level._selected_skill_id == &"blade_wave", "技能窗口刷新后保持稳定选择")
-	level._unhandled_input(_key_event(KEY_1, true))
-	_expect(player.get_skill_quickbar()[0] == &"", "快捷栏按键 echo 不改变配置")
 	level._unhandled_input(_key_event(KEY_1))
-	_expect(player.get_skill_quickbar()[0] == &"blade_wave", "数字键将已学习主动技能配置到快捷栏")
-	_expect(level._skills_quickbar_text.text.contains("剑气斩"), "快捷栏文本立即刷新")
+	_expect(player.get_skill_quickbar()[0] == &"", "技能窗口不再使用数字键配置快捷栏")
+	var blade_row := level._skill_buttons_by_id.get(&"blade_wave") as SkillDragButton
+	var passive_row := level._skill_buttons_by_id.get(&"traveler_vitality") as SkillDragButton
+	_expect(blade_row != null and blade_row.drag_enabled, "已学习主动技能行可以拖拽")
+	_expect(passive_row != null and not passive_row.drag_enabled, "被动技能行不能拖入快捷栏")
+	level._on_skill_quickbar_drop(0, {
+		"kind": &"skill_quickbar",
+		"skill_id": &"blade_wave",
+		"source_slot": -1,
+	})
+	_expect(player.get_skill_quickbar()[0] == &"blade_wave", "鼠标拖拽来源可配置主动技能快捷栏")
 	level._skills_decrease_button.pressed.emit()
 	_expect(player.get_skill_rank(&"blade_wave") == 0, "鼠标减号按钮降低选中技能等级")
 	_expect(player.get_skill_points() == points_before, "鼠标减点后返还技能点")

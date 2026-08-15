@@ -3,6 +3,8 @@ extends Node2D
 const MATERIAL_PICKUP_SCENE := preload("res://scenes/items/material_pickup.tscn")
 const EQUIPMENT_PICKUP_SCENE := preload("res://scenes/items/equipment_pickup.tscn")
 const UI_STYLE := preload("res://scripts/ui/ui_style.gd")
+const SKILL_DRAG_BUTTON := preload("res://scripts/ui/skill_drag_button.gd")
+const SKILL_QUICKBAR_SLOT := preload("res://scripts/ui/skill_quickbar_slot.gd")
 const PLATFORM_COLOR := Color("42626b")
 const PLATFORM_TOP_COLOR := Color("91b86d")
 const MAP_LEFT := -370.0
@@ -30,18 +32,14 @@ const SELECTED_COLOR := Color("ffe17a")
 @onready var _experience_fill: ColorRect = $Interface/HealthPanel/ExpFill
 @onready var _experience_text: Label = $Interface/HealthPanel/ExpText
 @onready var _level_up_text: Label = $Interface/LevelUpText
-@onready var _skill_hud_slots: Array[PanelContainer] = [
-	$Interface/SkillQuickbarHUD/Slot1,
-	$Interface/SkillQuickbarHUD/Slot2,
+@onready var _skill_quickbar_hud: Control = $Interface/SkillQuickbarHUD
+@onready var _skill_quickbar_rows: Array[HBoxContainer] = [
+	$Interface/SkillQuickbarHUD/Rows/Row1,
+	$Interface/SkillQuickbarHUD/Rows/Row2,
 ]
-@onready var _skill_hud_names: Array[Label] = [
-	$Interface/SkillQuickbarHUD/Slot1/Content/NameText,
-	$Interface/SkillQuickbarHUD/Slot2/Content/NameText,
-]
-@onready var _skill_hud_statuses: Array[Label] = [
-	$Interface/SkillQuickbarHUD/Slot1/Content/StatusText,
-	$Interface/SkillQuickbarHUD/Slot2/Content/StatusText,
-]
+var _skill_hud_slots: Array[SkillQuickbarSlot] = []
+var _skill_hud_names: Array[Label] = []
+var _skill_hud_statuses: Array[Label] = []
 @onready var _backpack_panel: Control = $Interface/BackpackPanel
 @onready var _backpack_scroll: ScrollContainer = $Interface/BackpackPanel/ItemScroll
 @onready var _backpack_list: GridContainer = $Interface/BackpackPanel/ItemScroll/ItemList
@@ -66,7 +64,6 @@ const SELECTED_COLOR := Color("ffe17a")
 @onready var _skills_detail_text: Label = $Interface/SkillsPanel/DetailPanel/DetailText
 @onready var _skills_decrease_button: Button = $Interface/SkillsPanel/DetailPanel/DecreaseButton
 @onready var _skills_increase_button: Button = $Interface/SkillsPanel/DetailPanel/IncreaseButton
-@onready var _skills_quickbar_text: Label = $Interface/SkillsPanel/QuickbarText
 @onready var _skills_feedback_text: Label = $Interface/SkillsPanel/FeedbackText
 @onready var _return_button: Button = $Interface/SessionPanel/ReturnButton
 @onready var _save_status_text: Label = $Interface/SessionPanel/SaveStatusText
@@ -97,12 +94,13 @@ var _pending_discard_index := -1
 var _selected_skill_id: StringName = &""
 var _profession_skills: Array[SkillDefinition] = []
 var _skill_buttons_by_id: Dictionary = {}
-var _skill_hud_states: Array[StringName] = [&"", &""]
+var _skill_hud_states: Array[StringName] = []
 var _level_up_tween: Tween
 var _reminder_versions: Dictionary = {}
 
 
 func _ready() -> void:
+	_setup_skill_quickbar_hud()
 	_apply_ui_foundation()
 	_rng.randomize()
 	var initial_map_result := load_world_map(DEFAULT_MAP_ID, DEFAULT_ENTRY_ID)
@@ -476,14 +474,31 @@ func _apply_ui_foundation() -> void:
 		UI_STYLE.apply_panel_container(slot, true)
 
 
+func _setup_skill_quickbar_hud() -> void:
+	var key_texts := ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+	for slot_index in key_texts.size():
+		var slot := SKILL_QUICKBAR_SLOT.new() as SkillQuickbarSlot
+		slot.name = "Slot%d" % (slot_index + 1)
+		slot.setup(slot_index, key_texts[slot_index])
+		slot.drop_requested.connect(_on_skill_quickbar_drop)
+		slot.clear_requested.connect(_on_skill_quickbar_clear)
+		_skill_quickbar_rows[floori(slot_index / 5.0)].add_child(slot)
+		_skill_hud_slots.append(slot)
+		_skill_hud_names.append(slot.name_label)
+		_skill_hud_statuses.append(slot.status_label)
+		_skill_hud_states.append(&"")
+
+
 func _update_skill_quickbar_hud() -> void:
 	for slot_index in _skill_hud_slots.size():
 		var status := _player.get_skill_hud_status(slot_index)
 		var state := StringName(status.get("state", &"empty"))
 		var display_name := String(status.get("display_name", "未配置"))
 		var message := String(status.get("message", "未配置"))
-		_skill_hud_names[slot_index].text = display_name
+		_skill_hud_slots[slot_index].skill_id = StringName(status.get("skill_id", &""))
+		_skill_hud_names[slot_index].text = display_name if display_name != "未配置" else "空"
 		_skill_hud_statuses[slot_index].text = message
+		_skill_hud_slots[slot_index].update_tooltip(display_name, message)
 		if _skill_hud_states[slot_index] != state:
 			_skill_hud_states[slot_index] = state
 			_apply_skill_hud_state(slot_index, state)
@@ -515,6 +530,26 @@ func _apply_skill_hud_state(slot_index: int, state: StringName) -> void:
 	)
 	_skill_hud_names[slot_index].add_theme_color_override("font_color", name_color)
 	_skill_hud_statuses[slot_index].add_theme_color_override("font_color", status_color)
+
+
+func _on_skill_quickbar_drop(slot_index: int, data: Dictionary) -> void:
+	var source_slot := int(data.get("source_slot", -1))
+	var result: Dictionary
+	if source_slot >= 0:
+		result = _player.move_skill_quickbar_slot(source_slot, slot_index)
+	else:
+		result = _player.set_skill_quickbar_slot(
+			slot_index,
+			StringName(data.get("skill_id", &""))
+		)
+	_show_reminder(_skills_feedback_text, String(result.get("message", "快捷栏配置失败")))
+	_update_skill_quickbar_hud()
+
+
+func _on_skill_quickbar_clear(slot_index: int) -> void:
+	var result := _player.set_skill_quickbar_slot(slot_index, &"")
+	_show_reminder(_skills_feedback_text, String(result.get("message", "快捷栏清空失败")))
+	_update_skill_quickbar_hud()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -583,12 +618,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.is_action_pressed("toggle_attributes"):
 			if not echoed:
 				_set_attributes_panel_visible(true)
-		elif event.is_action_pressed("skill_slot_1"):
-			if not echoed:
-				_assign_selected_skill_to_slot(0)
-		elif event.is_action_pressed("skill_slot_2"):
-			if not echoed:
-				_assign_selected_skill_to_slot(1)
 		elif event.is_action_pressed("interact_up"):
 			_move_skill_selection(-1)
 		elif event.is_action_pressed("interact_down"):
@@ -689,7 +718,7 @@ func _update_skills_panel() -> void:
 		_player.get_skill_points(),
 	]
 	for definition in _profession_skills:
-		var row := Button.new()
+		var row := SKILL_DRAG_BUTTON.new() as SkillDragButton
 		var rank := _player.get_skill_rank(definition.id)
 		var prerequisite_met := _is_skill_prerequisite_met(definition)
 		row.custom_minimum_size = Vector2(400.0, 54.0)
@@ -704,6 +733,14 @@ func _update_skills_panel() -> void:
 		]
 		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		row.set_meta(&"skill_id", definition.id)
+		row.skill_id = definition.id
+		row.drag_enabled = definition.is_active() and rank > 0
+		row.drag_label = definition.display_name
+		row.tooltip_text = (
+			"拖到顶部快捷栏进行配置"
+			if row.drag_enabled
+			else "只有已学习的主动技能可以拖入快捷栏"
+		)
 		UI_STYLE.apply_runtime_row(
 			row,
 			definition.id == _selected_skill_id
@@ -712,7 +749,6 @@ func _update_skills_panel() -> void:
 		_skills_list.add_child(row)
 		_skill_buttons_by_id[definition.id] = row
 	_update_skill_detail()
-	_update_skill_quickbar_text()
 	_scroll_selected_skill.call_deferred()
 
 
@@ -807,18 +843,6 @@ func _decrease_selected_skill_rank() -> void:
 	_show_reminder(_skills_feedback_text, String(result.get("message", "减点失败")))
 
 
-func _assign_selected_skill_to_slot(slot_index: int) -> void:
-	if _selected_skill_id == &"":
-		_show_reminder(_skills_feedback_text, "没有可配置的技能")
-		return
-	var result := _player.set_skill_quickbar_slot(slot_index, _selected_skill_id)
-	_update_skills_panel()
-	_show_reminder(_skills_feedback_text, "%s：快捷栏 %d" % [
-		String(result.get("message", "配置失败")),
-		slot_index + 1,
-	])
-
-
 func _update_skill_detail() -> void:
 	var definition := DefinitionRegistry.get_skill(_selected_skill_id)
 	if definition == null or not definition.is_available_to_profession(_player.get_profession_id()):
@@ -866,15 +890,6 @@ func _update_skill_detail() -> void:
 	lines.append("升级状态：%s" % String(status.get("message", "无法升级")))
 	lines.append("降级状态：%s" % String(down_status.get("message", "无法降级")))
 	_skills_detail_text.text = "\n".join(lines)
-
-
-func _update_skill_quickbar_text() -> void:
-	var slots := _player.get_skill_quickbar()
-	var parts: Array[String] = []
-	for index in slots.size():
-		var definition := DefinitionRegistry.get_skill(slots[index])
-		parts.append("%d %s" % [index + 1, definition.display_name if definition != null else "空"])
-	_skills_quickbar_text.text = "快捷栏：%s" % "    ".join(parts)
 
 
 func _skill_category_display_name(definition: SkillDefinition) -> String:
