@@ -55,8 +55,16 @@ func _physics_process(delta: float) -> void:
 func _collect() -> void:
 	if not _active or definition == null or _player == null:
 		return
+	var result := _player.collect_material(definition.id, amount)
+	var accepted := int(result.get("accepted", 0))
+	if accepted <= 0:
+		velocity = Vector2.ZERO
+		return
+	amount = maxi(int(result.get("remaining", amount - accepted)), 0)
+	if amount > 0:
+		velocity = Vector2.ZERO
+		return
 	deactivate()
-	_player.collect_material(definition.id, amount)
 	queue_free()
 
 

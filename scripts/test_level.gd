@@ -5,6 +5,7 @@ const EQUIPMENT_PICKUP_SCENE := preload("res://scenes/items/equipment_pickup.tsc
 const UI_STYLE := preload("res://scripts/ui/ui_style.gd")
 const SKILL_DRAG_BUTTON := preload("res://scripts/ui/skill_drag_button.gd")
 const SKILL_QUICKBAR_SLOT := preload("res://scripts/ui/skill_quickbar_slot.gd")
+const BACKPACK_SLOT_BUTTON := preload("res://scripts/ui/backpack_slot_button.gd")
 const PLATFORM_COLOR := Color("42626b")
 const PLATFORM_TOP_COLOR := Color("91b86d")
 const MAP_LEFT := -370.0
@@ -43,7 +44,13 @@ var _skill_hud_statuses: Array[Label] = []
 @onready var _backpack_panel: Control = $Interface/BackpackPanel
 @onready var _backpack_scroll: ScrollContainer = $Interface/BackpackPanel/ItemScroll
 @onready var _backpack_list: GridContainer = $Interface/BackpackPanel/ItemScroll/ItemList
-@onready var _backpack_empty_text: Label = $Interface/BackpackPanel/EmptyText
+@onready var _backpack_hint_text: Label = $Interface/BackpackPanel/HintText
+@onready var _backpack_tab_buttons: Dictionary = {
+	BackpackCategory.EQUIPMENT: $Interface/BackpackPanel/Tabs/Equipment,
+	BackpackCategory.CONSUMABLE: $Interface/BackpackPanel/Tabs/Consumable,
+	BackpackCategory.OTHER: $Interface/BackpackPanel/Tabs/Other,
+	BackpackCategory.QUEST: $Interface/BackpackPanel/Tabs/Quest,
+}
 @onready var _backpack_detail_panel: Control = $Interface/BackpackPanel/DetailPanel
 @onready var _backpack_detail_text: Label = $Interface/BackpackPanel/DetailPanel/DetailText
 @onready var _backpack_feedback_text: Label = $Interface/BackpackPanel/FeedbackText
@@ -89,6 +96,10 @@ var _selected_backpack_instance_id := ""
 var _selected_backpack_index_hint := -1
 var _sorted_backpack_items: Array[EquipmentInstance] = []
 var _backpack_buttons_by_id: Dictionary = {}
+var _backpack_slot_buttons: Array[BackpackSlotButton] = []
+var _backpack_category: StringName = BackpackCategory.EQUIPMENT
+var _selected_stack_index := -1
+var _hovered_stack_index := -1
 var _pending_discard_instance_id := ""
 var _pending_discard_index := -1
 var _selected_skill_id: StringName = &""
@@ -101,6 +112,7 @@ var _reminder_versions: Dictionary = {}
 
 func _ready() -> void:
 	_setup_skill_quickbar_hud()
+	_setup_backpack_tabs()
 	_apply_ui_foundation()
 	_rng.randomize()
 	var initial_map_result := load_world_map(DEFAULT_MAP_ID, DEFAULT_ENTRY_ID)
@@ -116,6 +128,7 @@ func _ready() -> void:
 	_player.equipment_changed.connect(_on_player_equipment_changed)
 	_player.equipment_changed.connect(_update_skill_quickbar_hud)
 	_player.equipment_inventory_changed.connect(_update_backpack_panel)
+	_player.stackable_inventory_changed.connect(_update_backpack_panel)
 	_player.equipment_equip_failed.connect(_on_equipment_equip_failed)
 	_player.skills_changed.connect(_update_skills_panel)
 	_player.skills_changed.connect(_update_skill_quickbar_hud)
@@ -470,6 +483,11 @@ func _apply_ui_foundation() -> void:
 	_return_status_text.add_theme_color_override("font_color", UI_STYLE.TEXT_WARNING)
 	_backpack_feedback_text.add_theme_color_override("font_color", UI_STYLE.TEXT_WARNING)
 	_skills_feedback_text.add_theme_color_override("font_color", UI_STYLE.TEXT_WARNING)
+	for category in BackpackCategory.ALL:
+		UI_STYLE.apply_runtime_row(
+			_backpack_tab_buttons[category] as Button,
+			category == _backpack_category
+		)
 	for slot in _skill_hud_slots:
 		UI_STYLE.apply_panel_container(slot, true)
 
@@ -487,6 +505,33 @@ func _setup_skill_quickbar_hud() -> void:
 		_skill_hud_names.append(slot.name_label)
 		_skill_hud_statuses.append(slot.status_label)
 		_skill_hud_states.append(&"")
+
+
+func _setup_backpack_tabs() -> void:
+	for category in BackpackCategory.ALL:
+		var button := _backpack_tab_buttons[category] as Button
+		button.pressed.connect(_set_backpack_category.bind(category))
+
+
+func _set_backpack_category(category: StringName) -> void:
+	if not BackpackCategory.is_valid(category) or category == _backpack_category:
+		return
+	_cancel_discard()
+	_backpack_category = category
+	_hovered_backpack_instance_id = ""
+	_selected_backpack_instance_id = ""
+	_selected_backpack_index_hint = -1
+	_hovered_stack_index = -1
+	_selected_stack_index = -1
+	_update_backpack_panel()
+
+
+func _cycle_backpack_category(direction: int) -> void:
+	var index := BackpackCategory.ALL.find(_backpack_category)
+	if index < 0:
+		index = 0
+	index = posmod(index + direction, BackpackCategory.ALL.size())
+	_set_backpack_category(BackpackCategory.ALL[index])
 
 
 func _update_skill_quickbar_hud() -> void:
@@ -564,7 +609,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if _backpack_panel.visible:
-		if event.is_action_pressed("ui_cancel") or event.is_action_pressed("toggle_backpack"):
+		if event is InputEventKey and event.keycode == KEY_TAB:
+			if not echoed:
+				_cycle_backpack_category(-1 if event.shift_pressed else 1)
+		elif event.is_action_pressed("ui_cancel") or event.is_action_pressed("toggle_backpack"):
 			if not echoed:
 				_set_backpack_panel_visible(false)
 		elif event.is_action_pressed("toggle_attributes"):
@@ -574,10 +622,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			if not echoed:
 				_set_skills_panel_visible(true)
 		elif event.is_action_pressed("light_attack"):
-			if not echoed:
+			if not echoed and _backpack_category == BackpackCategory.EQUIPMENT:
 				_equip_selected_backpack_item()
 		elif event.is_action_pressed("heavy_attack"):
-			if not echoed:
+			if not echoed and _backpack_category == BackpackCategory.EQUIPMENT:
 				_open_discard_confirmation()
 		elif event.is_action_pressed("move_left"):
 			_move_backpack_selection(Vector2i.LEFT)
@@ -648,6 +696,9 @@ func _set_backpack_panel_visible(visible: bool) -> void:
 		_hovered_equipment_slot = &""
 		_skills_panel.visible = false
 		_backpack_panel.visible = true
+		_backpack_category = BackpackCategory.EQUIPMENT
+		_selected_stack_index = -1
+		_hovered_stack_index = -1
 		_backpack_feedback_text.text = ""
 		_update_backpack_panel()
 	else:
@@ -1147,28 +1198,51 @@ func _on_player_equipment_changed() -> void:
 
 
 func _update_backpack_panel() -> void:
-	var previous_id := _selected_backpack_instance_id
-	var previous_index := _selected_backpack_index_hint
 	for child in _backpack_list.get_children():
 		_backpack_list.remove_child(child)
 		child.queue_free()
 	_backpack_buttons_by_id.clear()
-	_sorted_backpack_items = _player.get_equipment_inventory()
-	_sorted_backpack_items.sort_custom(_backpack_item_before)
-	_backpack_empty_text.visible = _sorted_backpack_items.is_empty()
-	if _sorted_backpack_items.is_empty():
+	_backpack_slot_buttons.clear()
+	for category in BackpackCategory.ALL:
+		UI_STYLE.apply_runtime_row(
+			_backpack_tab_buttons[category] as Button,
+			category == _backpack_category
+		)
+	if _backpack_category == BackpackCategory.EQUIPMENT:
+		_update_equipment_backpack_grid()
+		_backpack_hint_text.text = "鼠标拖拽整理    Tab / Shift+Tab 切换分类    Z 装备    X 丢弃    I / Esc 关闭"
+	else:
+		_update_stackable_backpack_grid()
+		_backpack_hint_text.text = "鼠标拖拽移动 / 合并    Tab / Shift+Tab 切换分类    I / Esc 关闭"
+
+
+func _update_equipment_backpack_grid() -> void:
+	var previous_id := _selected_backpack_instance_id
+	var previous_index := _selected_backpack_index_hint
+	_sorted_backpack_items = _player.get_equipment_inventory_slots()
+	if _player.get_equipment_inventory().is_empty():
 		_selected_backpack_instance_id = ""
 		_selected_backpack_index_hint = -1
 	else:
 		var restored_index := _find_backpack_index(previous_id)
 		if restored_index < 0:
-			restored_index = clampi(previous_index, 0, _sorted_backpack_items.size() - 1) if previous_index >= 0 else 0
+			restored_index = _first_occupied_equipment_slot(previous_index)
 		_selected_backpack_index_hint = restored_index
 		_selected_backpack_instance_id = _sorted_backpack_items[restored_index].instance_id
-	for item in _sorted_backpack_items:
-		var row := Button.new()
+	var capacity := _player.get_backpack_capacity(BackpackCategory.EQUIPMENT)
+	for slot_index in capacity:
+		var row := BACKPACK_SLOT_BUTTON.new() as BackpackSlotButton
 		row.custom_minimum_size = Vector2(50.0, 50.0)
 		row.focus_mode = Control.FOCUS_NONE
+		row.set_quantity(0)
+		row.configure_drag(BackpackCategory.EQUIPMENT, slot_index, _sorted_backpack_items[slot_index] != null, _on_backpack_slot_dropped)
+		_backpack_slot_buttons.append(row)
+		if _sorted_backpack_items[slot_index] == null:
+			row.text = ""
+			UI_STYLE.apply_backpack_slot(row, false, UI_STYLE.TEXT_DISABLED)
+			_backpack_list.add_child(row)
+			continue
+		var item := _sorted_backpack_items[slot_index]
 		row.text = _format_backpack_slot_text(item)
 		row.tooltip_text = "[%s] %s" % [EquipmentQuality.display_name(item.quality), item.get_display_name()]
 		UI_STYLE.apply_backpack_slot(
@@ -1185,6 +1259,47 @@ func _update_backpack_panel() -> void:
 		_backpack_buttons_by_id[item.instance_id] = row
 	_show_active_backpack_detail()
 	_scroll_selected_backpack_item.call_deferred()
+
+
+func _update_stackable_backpack_grid() -> void:
+	var stacks := _player.get_stackable_item_slots(_backpack_category, true)
+	if _player.get_stackable_item_slots(_backpack_category).is_empty():
+		_selected_stack_index = -1
+	else:
+		if _selected_stack_index < 0 or _selected_stack_index >= stacks.size() or stacks[_selected_stack_index].is_empty():
+			_selected_stack_index = _first_occupied_stack_slot(stacks)
+	var capacity := _player.get_backpack_capacity(_backpack_category)
+	for slot_index in capacity:
+		var row := BACKPACK_SLOT_BUTTON.new() as BackpackSlotButton
+		row.custom_minimum_size = Vector2(50.0, 50.0)
+		row.focus_mode = Control.FOCUS_NONE
+		row.configure_drag(_backpack_category, slot_index, not stacks[slot_index].is_empty(), _on_backpack_slot_dropped)
+		_backpack_slot_buttons.append(row)
+		if stacks[slot_index].is_empty():
+			row.text = ""
+			row.set_quantity(0)
+			UI_STYLE.apply_backpack_slot(row, false, UI_STYLE.TEXT_DISABLED)
+			_backpack_list.add_child(row)
+			continue
+		var stack := stacks[slot_index]
+		var item_id := StringName(String(stack.get("item_id", "")))
+		var definition := DefinitionRegistry.get_stackable_item(item_id)
+		if definition == null:
+			row.set_quantity(0)
+			UI_STYLE.apply_backpack_slot(row, false, UI_STYLE.TEXT_DISABLED)
+			_backpack_list.add_child(row)
+			continue
+		row.text = definition.display_name.substr(0, mini(definition.display_name.length(), 3))
+		row.tooltip_text = "%s ×%d" % [definition.display_name, int(stack.get("quantity", 0))]
+		row.set_quantity(int(stack.get("quantity", 0)))
+		row.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row.set_meta(&"stack_index", slot_index)
+		UI_STYLE.apply_backpack_slot(row, slot_index == _selected_stack_index, definition.color)
+		row.mouse_entered.connect(_on_stackable_item_entered.bind(slot_index))
+		row.mouse_exited.connect(_on_stackable_item_exited.bind(slot_index))
+		row.pressed.connect(_on_stackable_item_pressed.bind(slot_index))
+		_backpack_list.add_child(row)
+	_show_active_stackable_detail()
 
 
 func _backpack_item_before(first: EquipmentInstance, second: EquipmentInstance) -> bool:
@@ -1226,15 +1341,44 @@ func _find_backpack_index(instance_id: String) -> int:
 	if instance_id.is_empty():
 		return -1
 	for index in _sorted_backpack_items.size():
-		if _sorted_backpack_items[index].instance_id == instance_id:
+		var item := _sorted_backpack_items[index]
+		if item != null and item.instance_id == instance_id:
+			return index
+	return -1
+
+
+func _first_occupied_equipment_slot(preferred_index := -1) -> int:
+	if preferred_index >= 0 and preferred_index < _sorted_backpack_items.size() and _sorted_backpack_items[preferred_index] != null:
+		return preferred_index
+	for index in _sorted_backpack_items.size():
+		if _sorted_backpack_items[index] != null:
+			return index
+	return -1
+
+
+func _first_occupied_stack_slot(stacks: Array[Dictionary]) -> int:
+	for index in stacks.size():
+		if not stacks[index].is_empty():
 			return index
 	return -1
 
 
 func _move_backpack_selection(direction: Vector2i) -> void:
+	if _backpack_category != BackpackCategory.EQUIPMENT:
+		var stacks := _player.get_stackable_item_slots(_backpack_category, true)
+		var target_stack := backpack_navigation_index(
+			_selected_stack_index,
+			stacks.size(),
+			direction
+		)
+		if target_stack < 0 or target_stack == _selected_stack_index or stacks[target_stack].is_empty():
+			return
+		_selected_stack_index = target_stack
+		_refresh_stackable_selection()
+		return
 	var current := _find_backpack_index(_selected_backpack_instance_id)
 	var target := backpack_navigation_index(current, _sorted_backpack_items.size(), direction)
-	if target < 0 or target == current:
+	if target < 0 or target == current or _sorted_backpack_items[target] == null:
 		return
 	_selected_backpack_index_hint = target
 	_selected_backpack_instance_id = _sorted_backpack_items[target].instance_id
@@ -1253,6 +1397,28 @@ func _refresh_backpack_selection() -> void:
 			)
 	_show_active_backpack_detail()
 	_scroll_selected_backpack_item.call_deferred()
+
+
+func _refresh_stackable_selection() -> void:
+	var stacks := _player.get_stackable_item_slots(_backpack_category, true)
+	for slot_index in mini(stacks.size(), _backpack_slot_buttons.size()):
+		var row := _backpack_slot_buttons[slot_index]
+		var stack := stacks[slot_index]
+		if stack.is_empty():
+			UI_STYLE.apply_backpack_slot(row, false, UI_STYLE.TEXT_DISABLED)
+			continue
+		var definition := DefinitionRegistry.get_stackable_item(
+			StringName(String(stack.get("item_id", "")))
+		)
+		if row != null and definition != null:
+			UI_STYLE.apply_backpack_slot(
+				row,
+				slot_index == _selected_stack_index,
+				definition.color
+			)
+	_show_active_stackable_detail()
+	if _selected_stack_index >= 0 and _selected_stack_index < _backpack_slot_buttons.size():
+		_backpack_scroll.ensure_control_visible(_backpack_slot_buttons[_selected_stack_index])
 
 
 func _scroll_selected_backpack_item() -> void:
@@ -1286,6 +1452,39 @@ func _on_backpack_item_pressed(instance_id: String) -> void:
 	_selected_backpack_index_hint = index
 	_refresh_backpack_selection()
 	_equip_selected_backpack_item()
+
+
+func _on_stackable_item_entered(stack_index: int) -> void:
+	_hovered_stack_index = stack_index
+	_show_stackable_detail(stack_index)
+
+
+func _on_stackable_item_exited(stack_index: int) -> void:
+	if _hovered_stack_index == stack_index:
+		_hovered_stack_index = -1
+		_show_active_stackable_detail()
+
+
+func _on_stackable_item_pressed(stack_index: int) -> void:
+	var stacks := _player.get_stackable_item_slots(_backpack_category, true)
+	if stack_index < 0 or stack_index >= stacks.size() or stacks[stack_index].is_empty():
+		return
+	_selected_stack_index = stack_index
+	_refresh_stackable_selection()
+
+
+func _on_backpack_slot_dropped(source_index: int, target_index: int) -> void:
+	var moved := false
+	if _backpack_category == BackpackCategory.EQUIPMENT:
+		moved = _player.move_equipment_inventory_slot(source_index, target_index)
+		if moved:
+			_selected_backpack_index_hint = target_index
+	else:
+		moved = _player.move_stackable_item_slot(_backpack_category, source_index, target_index)
+		if moved:
+			_selected_stack_index = target_index
+	if moved:
+		_backpack_feedback_text.text = "背包栏位已调整"
 
 
 func _equip_selected_backpack_item() -> void:
@@ -1333,6 +1532,9 @@ func _on_equipment_equip_failed(message: String) -> void:
 
 
 func _show_active_backpack_detail() -> void:
+	if _backpack_category != BackpackCategory.EQUIPMENT:
+		_show_active_stackable_detail()
+		return
 	var instance_id := _hovered_backpack_instance_id if not _hovered_backpack_instance_id.is_empty() else _selected_backpack_instance_id
 	if instance_id.is_empty():
 		_hide_backpack_detail()
@@ -1352,6 +1554,38 @@ func _show_backpack_detail(instance_id: String) -> void:
 func _hide_backpack_detail() -> void:
 	_backpack_detail_panel.visible = false
 	_backpack_detail_text.text = ""
+
+
+func _show_active_stackable_detail() -> void:
+	var stack_index := _hovered_stack_index if _hovered_stack_index >= 0 else _selected_stack_index
+	if stack_index < 0:
+		_hide_backpack_detail()
+	else:
+		_show_stackable_detail(stack_index)
+
+
+func _show_stackable_detail(stack_index: int) -> void:
+	var stacks := _player.get_stackable_item_slots(_backpack_category, true)
+	if stack_index < 0 or stack_index >= stacks.size() or stacks[stack_index].is_empty():
+		_hide_backpack_detail()
+		return
+	var stack := stacks[stack_index]
+	var definition := DefinitionRegistry.get_stackable_item(
+		StringName(String(stack.get("item_id", "")))
+	)
+	if definition == null:
+		_hide_backpack_detail()
+		return
+	_backpack_detail_text.text = "\n".join([
+		definition.display_name,
+		"",
+		"分类：%s" % BackpackCategory.display_name(definition.category),
+		"当前格数量：%d / %d" % [int(stack.get("quantity", 0)), definition.stack_limit],
+		"背包总数：%d" % _player.get_stackable_item_quantity(definition.id),
+		"",
+		definition.description,
+	])
+	_backpack_detail_panel.visible = true
 
 
 func _format_stat(value: float) -> String:

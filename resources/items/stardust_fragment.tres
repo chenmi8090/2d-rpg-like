@@ -6,4 +6,7 @@
 script = ExtResource("1_collectible")
 id = &"stardust_fragment"
 display_name = "星尘碎片"
+description = "蕴含微弱星光的碎片，可作为后续成长系统的基础材料。"
+category = &"other"
+stack_limit = 99
 color = Color(0.952941, 0.839216, 0.419608, 1)

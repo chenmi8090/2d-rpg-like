@@ -57,6 +57,20 @@ The game is built around endless combat, farming, character growth, and equipmen
 - Keyboard-first backpack navigation, scrolling, selection persistence, item comparison, equip, unequip, deterministic sorting, and confirmed discard.
 - Replaced or unequipped items return as the same equipment instance; save/load preserves inventory decisions and prevents cross-character contamination.
 
+### Categorized backpack and stackable items - Issue #17
+
+- The backpack has four fixed tabs in this order: equipment, consumables, other items, and quest items.
+- Every category starts with 40 independently persisted slots displayed as four rows of ten, including visible empty slots.
+- Equipment remains unique one-item-per-slot instances; non-equipment items use data-driven identities, categories, descriptions, and bounded stacks.
+- Stack quantities are displayed over item cells at the bottom-left, including quantity one, without depending on the temporary text representation.
+- Backpack items can be dragged between slots; equipment moves or swaps, while stackable items move, merge into matching stacks when capacity permits, or swap when they cannot merge.
+- Manually arranged slot positions remain stable in the character save, including intentional empty gaps.
+- Stardust is stored in the other-item tab with a stack limit of 99, while compatibility APIs preserve existing progression behavior.
+- Pickups fill existing stacks before empty slots, split oversized quantities automatically across slots, and retain any uncollected remainder in the world when capacity is insufficient.
+- Backpack-full equipment pickup, unequip, and swap paths preserve item ownership without silently deleting items.
+- Save schema v6 migrates legacy stardust quantities into categorized stacks, preserves existing equipment, and keeps independently expanded category capacities.
+- Player-initiated stack splitting, consumable effects, quest logic, backpack expansion services, shops, crafting, and a broader interface redesign are not part of this issue.
+
 ### Profession active skills - Issue #12
 
 - Data-driven skill definitions with stable IDs, profession/weapon requirements, category, level bounds, prerequisite metadata, delivery type, phase timings, cooldown, strength, and ground/air conditions.
@@ -103,7 +117,7 @@ The game is built around endless combat, farming, character growth, and equipmen
 - Active skill slots: `1`-`0` (top row `1`-`5`, bottom row `6`-`0`)
 - Profession skills: `K` (mouse-controlled rank `+` / `-` buttons)
 - Character status: `E`
-- Equipment backpack: `I`
+- Backpack: `I` (`Tab` / `Shift+Tab` cycles categories while open)
 - Close open interface panels: `Esc`
 - Manual reset: `R`
 
@@ -128,6 +142,7 @@ Combat and movement inputs are isolated while interface panels are open. The cur
 | #14 | Complete | Per-map encounters, unified respawn timing, map isolation, drop cleanup, and repeatable farming |
 | #15 | Complete | Advanced-skill prerequisites, protected rank reduction, legacy-save refunds, and clearer skill hierarchy |
 | #16 | Complete | Top two-row ten-slot skill quickbar, drag/drop assignment, unique bindings, cooldown states, and save migration |
+| #17 | Complete | Four 40-slot backpack categories, bounded stackable items, automatic stack splitting, capacity-safe pickups, and save migration |
 
 ## Compatibility rules for future work
 
@@ -142,11 +157,11 @@ Combat and movement inputs are isolated while interface panels are open. The cur
 - New save data must be versioned, migrated safely, and tested without writing to real player saves.
 - Temporary UI must remain clear and usable, but final art and complex presentation wait until gameplay systems stabilize.
 
-## Next milestone: categorized backpack and stackable items
+## Completed milestone: categorized backpack and stackable items
 
-The current backpack only manages unique equipment instances, while non-equipment materials still use one hard-coded `stardust_fragment` counter. The next milestone should establish four stable backpack categories—equipment, consumables, other items, and quest items—and a general per-character stackable-item inventory before item use, shops, quests, reinforcement, or crafting depend on those boundaries.
+Issue #17 established four stable backpack categories—equipment, consumables, other items, and quest items—and a general per-character stackable-item inventory before item use, shops, quests, reinforcement, or crafting depend on those boundaries.
 
-Planned scope:
+Delivered scope:
 
 - Add four fixed backpack tabs in this order: equipment, consumables, other items, and quest items.
 - Give every tab 40 initially unlocked slots displayed as four rows of ten, including visible empty slots.
@@ -160,6 +175,8 @@ Planned scope:
 - Preserve pickup cleanup, autosave, backup recovery, map travel, death, respawn, and reset behavior.
 - Reject or retain pickups safely when the matching tab has no capacity instead of silently deleting items.
 - Extend automated coverage and run the full existing regression suite.
+
+Player-initiated stack splitting remains a separate future feature. The splitting delivered here is automatic placement across bounded stacks, such as storing 120 items as `99 + 21`.
 
 ## Remaining vertical-slice backlog
 

@@ -61,6 +61,14 @@ const EQUIPMENT_PATHS := {
 	&"traveler_trousers": "res://resources/equipment/traveler_trousers.tres",
 }
 
+const STACKABLE_ITEM_PATHS := {
+	&"stardust_fragment": "res://resources/items/stardust_fragment.tres",
+}
+
+const STACKABLE_ITEM_IDS: Array[StringName] = [
+	&"stardust_fragment",
+]
+
 
 static func get_profession(profession_id: StringName) -> ProfessionDefinition:
 	var path := String(PROFESSION_PATHS.get(profession_id, ""))
@@ -237,3 +245,22 @@ static func get_equipment(equipment_id: StringName) -> EquipmentDefinition:
 	if path.is_empty():
 		return null
 	return load(path) as EquipmentDefinition
+
+
+static func get_stackable_item(item_id: StringName) -> CollectibleDefinition:
+	var path := String(STACKABLE_ITEM_PATHS.get(item_id, ""))
+	if path.is_empty():
+		return null
+	var definition := load(path) as CollectibleDefinition
+	if definition == null or definition.id != item_id or not definition.is_valid():
+		return null
+	return definition
+
+
+static func get_stackable_items() -> Array[CollectibleDefinition]:
+	var definitions: Array[CollectibleDefinition] = []
+	for item_id in STACKABLE_ITEM_IDS:
+		var definition := get_stackable_item(item_id)
+		if definition != null:
+			definitions.append(definition)
+	return definitions

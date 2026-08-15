@@ -4,6 +4,7 @@ extends CharacterBody2D
 signal respawned(reason: RespawnReason)
 signal health_changed(current: int, maximum: int)
 signal material_changed(total: int)
+signal stackable_inventory_changed
 signal progression_changed(level: int, current_experience: int, required_experience: int, maximum_level_reached: bool)
 signal level_up(level: int, levels_gained: int)
 signal stats_changed
@@ -56,6 +57,7 @@ const DROP_THROUGH_TIME := 0.2
 const DROP_THROUGH_SPEED := 100.0
 const CROUCH_CLEARANCE_MASK := 1
 const STARDUST_FRAGMENT_ID := &"stardust_fragment"
+const DEFAULT_BACKPACK_CAPACITY := 40
 const EQUIPMENT_MODIFIER_SOURCE := &"equipment"
 const PASSIVE_SKILL_MODIFIER_SOURCE := &"passive_skills"
 const DEFAULT_SKILL_QUICKBAR_SIZE := 10
@@ -132,12 +134,14 @@ var _pre_hit_velocity := Vector2.ZERO
 var _pre_hit_on_floor := true
 var _death_respawn_timer := 0.0
 var _spawn_position := Vector2.ZERO
-var _stardust_fragments := 0
 var _stats := PlayerStats.new()
 var _skill_progress := PlayerSkillProgress.new()
 var _skill_quickbar: Array[StringName] = []
 var _equipped_items: Dictionary = {}
 var _equipment_inventory: Array[EquipmentInstance] = []
+var _backpack_capacities: Dictionary = {}
+var _stackable_item_stacks: Dictionary = {}
+var _pending_equipment_slot_ids: Array[String] = []
 var _next_equipment_instance_serial := 1
 var _input_suppression_timer := 0.0
 var _gameplay_input_blocked := false
@@ -164,6 +168,7 @@ func _ready() -> void:
 		if progression_definition != null else 0
 	)
 	_skill_quickbar = _default_skill_quickbar()
+	_initialize_backpack()
 	_apply_starting_equipment()
 	_stats.rng.randomize()
 	_spawn_position = global_position
@@ -175,7 +180,8 @@ func _ready() -> void:
 
 func player_ready() -> void:
 	health_changed.emit(_health, get_max_health())
-	material_changed.emit(_stardust_fragments)
+	material_changed.emit(get_stardust_fragments())
+	stackable_inventory_changed.emit()
 	_emit_progression_changed()
 
 
@@ -692,7 +698,7 @@ func get_save_snapshot() -> Dictionary:
 		"progression": {"level": _stats.level, "experience": _stats.experience},
 		"skills": _skill_progress.to_snapshot(),
 		"skill_quickbar": {"slots": _skill_quickbar.duplicate()},
-		"materials": {"stardust_fragment": _stardust_fragments},
+		"backpack": get_backpack_snapshot(),
 		"equipment": {
 			"next_instance_serial": _next_equipment_instance_serial,
 			"instances": instances.values(),
@@ -722,6 +728,28 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	_skill_cooldowns.clear()
 	_equipped_items.clear()
 	_equipment_inventory.clear()
+	var backpack_snapshot := profile.get("backpack", {}) as Dictionary
+	if backpack_snapshot.is_empty():
+		var legacy_materials := profile.get("materials", {}) as Dictionary
+		var legacy_stardust := maxi(int(legacy_materials.get("stardust_fragment", 0)), 0)
+		var stardust_definition := DefinitionRegistry.get_stackable_item(STARDUST_FRAGMENT_ID)
+		var required_other_capacity := DEFAULT_BACKPACK_CAPACITY
+		if stardust_definition != null and legacy_stardust > 0:
+			required_other_capacity = maxi(
+				ceili(float(legacy_stardust) / float(stardust_definition.stack_limit)),
+				DEFAULT_BACKPACK_CAPACITY
+			)
+		backpack_snapshot = {
+			"capacities": {"other": required_other_capacity},
+			"stacks": {
+				"other": (
+					[{"item_id": "stardust_fragment", "quantity": legacy_stardust}]
+					if legacy_stardust > 0
+					else []
+				),
+			},
+		}
+	_load_backpack(backpack_snapshot)
 	var equipment := profile.get("equipment", {}) as Dictionary
 	_next_equipment_instance_serial = maxi(int(equipment.get("next_instance_serial", 1)), 1)
 	var instances_by_id: Dictionary = {}
@@ -738,12 +766,23 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 		if item != null and item.get_slot() == slot and profession_definition.can_equip(item.definition):
 			_equipped_items[slot] = item
 	var inventory := equipment.get("inventory", []) as Array
+	var inventory_items_by_id: Dictionary = {}
 	for raw_id in inventory:
+		if inventory_items_by_id.size() >= get_backpack_capacity(BackpackCategory.EQUIPMENT):
+			break
 		var item := instances_by_id.get(String(raw_id)) as EquipmentInstance
 		if item != null and not _is_equipped_instance(item.instance_id):
-			_equipment_inventory.append(item)
-	var materials := profile.get("materials", {}) as Dictionary
-	_stardust_fragments = maxi(int(materials.get("stardust_fragment", 0)), 0)
+			inventory_items_by_id[item.instance_id] = item
+	_equipment_inventory.resize(get_backpack_capacity(BackpackCategory.EQUIPMENT))
+	for slot_index in mini(_pending_equipment_slot_ids.size(), _equipment_inventory.size()):
+		var instance_id := _pending_equipment_slot_ids[slot_index]
+		var slotted_item := inventory_items_by_id.get(instance_id) as EquipmentInstance
+		if slotted_item != null:
+			_equipment_inventory[slot_index] = slotted_item
+			inventory_items_by_id.erase(instance_id)
+	for item_value in inventory_items_by_id.values():
+		_insert_equipment_into_first_empty(item_value as EquipmentInstance)
+	_pending_equipment_slot_ids.clear()
 	_stats.set_modifier_source(EQUIPMENT_MODIFIER_SOURCE, _equipment_modifiers())
 	_rebuild_passive_skill_modifiers()
 	_cancel_attack()
@@ -763,7 +802,8 @@ func apply_save_snapshot(profile: Dictionary) -> Dictionary:
 	_set_crouched(false)
 	suppress_gameplay_input()
 	health_changed.emit(_health, get_max_health())
-	material_changed.emit(_stardust_fragments)
+	material_changed.emit(get_stardust_fragments())
+	stackable_inventory_changed.emit()
 	_emit_progression_changed()
 	stats_changed.emit()
 	equipment_changed.emit()
@@ -869,16 +909,28 @@ func _equip_instance(item: EquipmentInstance, remove_from_inventory: bool) -> bo
 	var replaced := get_equipped_item(slot)
 	if replaced == item:
 		return true
+	var item_in_inventory := item in _equipment_inventory
+	var source_index := _equipment_inventory.find(item)
+	var inventory_size_after_take := _equipment_inventory_item_count() - (1 if remove_from_inventory or item_in_inventory else 0)
+	if (
+		replaced != null
+		and inventory_size_after_take >= get_backpack_capacity(BackpackCategory.EQUIPMENT)
+	):
+		equipment_equip_failed.emit("装备栏已满，无法存放被替换装备")
+		return false
 	var inventory_changed := false
-	if remove_from_inventory:
-		_equipment_inventory.erase(item)
+	if remove_from_inventory and source_index >= 0:
+		_equipment_inventory[source_index] = null
 		inventory_changed = true
-	elif item in _equipment_inventory:
-		_equipment_inventory.erase(item)
+	elif source_index >= 0:
+		_equipment_inventory[source_index] = null
 		inventory_changed = true
 	_equipped_items[slot] = item
 	if replaced != null:
-		_equipment_inventory.append(replaced)
+		if source_index >= 0:
+			_equipment_inventory[source_index] = replaced
+		else:
+			_insert_equipment_into_first_empty(replaced)
 		inventory_changed = true
 	_refresh_equipment_modifiers()
 	equipment_changed.emit()
@@ -906,10 +958,13 @@ func _instance_for_equipment_candidate(candidate: Variant) -> EquipmentInstance:
 func unequip_slot(slot: StringName) -> EquipmentInstance:
 	if not EquipmentSlot.is_valid(slot):
 		return null
+	if is_backpack_category_full(BackpackCategory.EQUIPMENT):
+		equipment_equip_failed.emit("装备栏已满，无法卸下装备")
+		return null
 	var removed := _remove_equipped_item(slot)
 	if removed == null:
 		return null
-	_equipment_inventory.append(removed)
+	_insert_equipment_into_first_empty(removed)
 	_refresh_equipment_modifiers()
 	equipment_changed.emit()
 	equipment_inventory_changed.emit()
@@ -948,15 +1003,94 @@ func create_template_equipment(definition: EquipmentDefinition) -> EquipmentInst
 
 
 func collect_equipment(item: EquipmentInstance) -> bool:
-	if item == null or not item.is_valid() or has_equipment_instance(item.instance_id):
+	if (
+		item == null
+		or not item.is_valid()
+		or has_equipment_instance(item.instance_id)
+		or is_backpack_category_full(BackpackCategory.EQUIPMENT)
+	):
 		return false
-	_equipment_inventory.append(item)
+	_insert_equipment_into_first_empty(item)
 	equipment_inventory_changed.emit()
 	return true
 
 
 func get_equipment_inventory() -> Array[EquipmentInstance]:
+	var result: Array[EquipmentInstance] = []
+	for item in _equipment_inventory:
+		if item != null:
+			result.append(item)
+	return result
+
+
+func get_equipment_inventory_slots() -> Array[EquipmentInstance]:
+	_ensure_equipment_slot_capacity()
 	return _equipment_inventory.duplicate()
+
+
+func move_equipment_inventory_slot(source_index: int, target_index: int) -> bool:
+	_ensure_equipment_slot_capacity()
+	if (
+		source_index < 0
+		or source_index >= _equipment_inventory.size()
+		or target_index < 0
+		or target_index >= _equipment_inventory.size()
+		or source_index == target_index
+		or _equipment_inventory[source_index] == null
+	):
+		return false
+	var target := _equipment_inventory[target_index]
+	_equipment_inventory[target_index] = _equipment_inventory[source_index]
+	_equipment_inventory[source_index] = target
+	equipment_inventory_changed.emit()
+	return true
+
+
+func get_backpack_capacity(category: StringName) -> int:
+	if not BackpackCategory.is_valid(category):
+		return 0
+	return maxi(int(_backpack_capacities.get(category, DEFAULT_BACKPACK_CAPACITY)), DEFAULT_BACKPACK_CAPACITY)
+
+
+func is_backpack_category_full(category: StringName) -> bool:
+	if category == BackpackCategory.EQUIPMENT:
+		return _equipment_inventory_item_count() >= get_backpack_capacity(category)
+	if BackpackCategory.is_stackable(category):
+		return _stackable_inventory_item_count(category) >= get_backpack_capacity(category)
+	return true
+
+
+func _ensure_equipment_slot_capacity() -> void:
+	var capacity := get_backpack_capacity(BackpackCategory.EQUIPMENT)
+	if _equipment_inventory.size() < capacity:
+		_equipment_inventory.resize(capacity)
+
+
+func _equipment_inventory_item_count() -> int:
+	var count := 0
+	for item in _equipment_inventory:
+		if item != null:
+			count += 1
+	return count
+
+
+func _insert_equipment_into_first_empty(item: EquipmentInstance) -> bool:
+	if item == null:
+		return false
+	_ensure_equipment_slot_capacity()
+	for index in _equipment_inventory.size():
+		if _equipment_inventory[index] == null:
+			_equipment_inventory[index] = item
+			return true
+	return false
+
+
+func _stackable_inventory_item_count(category: StringName) -> int:
+	var count := 0
+	for stack_value in _stackable_item_stacks.get(category, []) as Array:
+		if stack_value is Dictionary and not (stack_value as Dictionary).is_empty():
+			count += 1
+	return count
 
 
 func discard_inventory_item(instance_id: String) -> bool:
@@ -965,7 +1099,7 @@ func discard_inventory_item(instance_id: String) -> bool:
 	for index in _equipment_inventory.size():
 		var item := _equipment_inventory[index]
 		if item != null and item.instance_id == instance_id:
-			_equipment_inventory.remove_at(index)
+			_equipment_inventory[index] = null
 			equipment_inventory_changed.emit()
 			return true
 	return false
@@ -1141,15 +1275,242 @@ func get_credit_owner() -> Node:
 	return self
 
 
-func collect_material(material_id: StringName, amount: int) -> void:
-	if material_id != STARDUST_FRAGMENT_ID or amount <= 0:
-		return
-	_stardust_fragments += amount
-	material_changed.emit(_stardust_fragments)
+func _initialize_backpack() -> void:
+	_backpack_capacities.clear()
+	_stackable_item_stacks.clear()
+	_pending_equipment_slot_ids.clear()
+	for category in BackpackCategory.ALL:
+		_backpack_capacities[category] = DEFAULT_BACKPACK_CAPACITY
+	for category in BackpackCategory.STACKABLE:
+		_stackable_item_stacks[category] = []
+
+
+func _load_backpack(snapshot: Dictionary) -> void:
+	_initialize_backpack()
+	var capacities := snapshot.get("capacities", {}) as Dictionary
+	for category in BackpackCategory.ALL:
+		_backpack_capacities[category] = maxi(
+			int(capacities.get(String(category), capacities.get(category, DEFAULT_BACKPACK_CAPACITY))),
+			DEFAULT_BACKPACK_CAPACITY
+		)
+	for raw_id in snapshot.get("equipment_slots", []) as Array:
+		_pending_equipment_slot_ids.append(String(raw_id))
+	var stacks_by_category := snapshot.get("stacks", {}) as Dictionary
+	for category in BackpackCategory.STACKABLE:
+		var raw_stacks := stacks_by_category.get(String(category), stacks_by_category.get(category, [])) as Array
+		_backpack_capacities[category] = maxi(
+			get_backpack_capacity(category),
+			raw_stacks.size()
+		)
+		var loaded_stacks: Array[Dictionary] = []
+		for raw_stack in raw_stacks:
+			var loaded_stack: Dictionary = {}
+			if raw_stack is Dictionary:
+				var stack := raw_stack as Dictionary
+				var item_id := StringName(String(stack.get("item_id", "")))
+				var definition := DefinitionRegistry.get_stackable_item(item_id)
+				var quantity := maxi(int(stack.get("quantity", 0)), 0)
+				if definition != null and definition.category == category and quantity > 0:
+					loaded_stack = {"item_id": item_id, "quantity": mini(quantity, definition.stack_limit)}
+			loaded_stacks.append(loaded_stack)
+		while loaded_stacks.size() < get_backpack_capacity(category):
+			loaded_stacks.append({})
+		_stackable_item_stacks[category] = loaded_stacks
+
+
+func get_backpack_snapshot() -> Dictionary:
+	var capacities: Dictionary = {}
+	var stacks: Dictionary = {}
+	for category in BackpackCategory.ALL:
+		capacities[String(category)] = get_backpack_capacity(category)
+	for category in BackpackCategory.STACKABLE:
+		var category_stacks: Array[Dictionary] = []
+		for stack_value in _stackable_item_stacks.get(category, []) as Array:
+			if not stack_value is Dictionary:
+				category_stacks.append({})
+				continue
+			var stack := stack_value as Dictionary
+			if stack.is_empty():
+				category_stacks.append({})
+			else:
+				category_stacks.append({
+					"item_id": String(stack.get("item_id", "")),
+					"quantity": maxi(int(stack.get("quantity", 0)), 0),
+				})
+		stacks[String(category)] = category_stacks
+	var equipment_slots: Array[String] = []
+	for item in _equipment_inventory:
+		equipment_slots.append(item.instance_id if item != null else "")
+	return {"capacities": capacities, "equipment_slots": equipment_slots, "stacks": stacks}
+
+
+func get_stackable_item_slots(category: StringName, include_empty := false) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if not BackpackCategory.is_stackable(category):
+		return result
+	for stack_value in _stackable_item_stacks.get(category, []) as Array:
+		var stack := (stack_value as Dictionary).duplicate()
+		if include_empty or not stack.is_empty():
+			result.append(stack)
+	if include_empty:
+		while result.size() < get_backpack_capacity(category):
+			result.append({})
+	return result
+
+
+func get_stackable_item_quantity(item_id: StringName) -> int:
+	var definition := DefinitionRegistry.get_stackable_item(item_id)
+	if definition == null:
+		return 0
+	var total := 0
+	for stack_value in _stackable_item_stacks.get(definition.category, []) as Array:
+		var stack := stack_value as Dictionary
+		if StringName(String(stack.get("item_id", ""))) == item_id:
+			total += maxi(int(stack.get("quantity", 0)), 0)
+	return total
+
+
+func has_stackable_item(item_id: StringName, amount: int) -> bool:
+	return amount >= 0 and get_stackable_item_quantity(item_id) >= amount
+
+
+func collect_stackable_item(item_id: StringName, amount: int) -> Dictionary:
+	if amount <= 0:
+		return {"ok": false, "accepted": 0, "remaining": maxi(amount, 0), "message": "道具数量无效"}
+	var accepted := _add_stackable_without_signal(item_id, amount)
+	if accepted > 0:
+		stackable_inventory_changed.emit()
+		if item_id == STARDUST_FRAGMENT_ID:
+			material_changed.emit(get_stardust_fragments())
+	return {
+		"ok": accepted == amount,
+		"accepted": accepted,
+		"remaining": amount - accepted,
+		"message": "道具已收入背包" if accepted == amount else "背包空间不足",
+	}
+
+
+func _add_stackable_without_signal(item_id: StringName, amount: int) -> int:
+	var definition := DefinitionRegistry.get_stackable_item(item_id)
+	if definition == null or amount <= 0:
+		return 0
+	var stacks := _stackable_item_stacks.get(definition.category, []) as Array
+	while stacks.size() < get_backpack_capacity(definition.category):
+		stacks.append({})
+	var remaining := amount
+	for index in stacks.size():
+		var stack := stacks[index] as Dictionary
+		if StringName(String(stack.get("item_id", ""))) != item_id:
+			continue
+		var quantity := maxi(int(stack.get("quantity", 0)), 0)
+		var added := mini(definition.stack_limit - quantity, remaining)
+		if added <= 0:
+			continue
+		stack["quantity"] = quantity + added
+		stacks[index] = stack
+		remaining -= added
+		if remaining == 0:
+			break
+	for index in stacks.size():
+		if remaining <= 0:
+			break
+		var stack := stacks[index] as Dictionary
+		if not stack.is_empty():
+			continue
+		var added := mini(definition.stack_limit, remaining)
+		stacks[index] = {"item_id": item_id, "quantity": added}
+		remaining -= added
+	_stackable_item_stacks[definition.category] = stacks
+	return amount - remaining
+
+
+func remove_stackable_item(item_id: StringName, amount: int) -> Dictionary:
+	if amount <= 0 or not has_stackable_item(item_id, amount):
+		return {"ok": false, "removed": 0, "message": "道具数量不足"}
+	var definition := DefinitionRegistry.get_stackable_item(item_id)
+	if definition == null:
+		return {"ok": false, "removed": 0, "message": "道具定义不存在"}
+	var stacks := _stackable_item_stacks.get(definition.category, []) as Array
+	var remaining := amount
+	var index := 0
+	while index < stacks.size() and remaining > 0:
+		var stack := stacks[index] as Dictionary
+		if StringName(String(stack.get("item_id", ""))) != item_id:
+			index += 1
+			continue
+		var quantity := maxi(int(stack.get("quantity", 0)), 0)
+		var removed := mini(quantity, remaining)
+		quantity -= removed
+		remaining -= removed
+		if quantity <= 0:
+			stacks[index] = {}
+			index += 1
+		else:
+			stack["quantity"] = quantity
+			stacks[index] = stack
+			index += 1
+	_stackable_item_stacks[definition.category] = stacks
+	stackable_inventory_changed.emit()
+	if item_id == STARDUST_FRAGMENT_ID:
+		material_changed.emit(get_stardust_fragments())
+	return {"ok": true, "removed": amount, "message": "道具已扣除"}
+
+
+func move_stackable_item_slot(category: StringName, source_index: int, target_index: int) -> bool:
+	if not BackpackCategory.is_stackable(category):
+		return false
+	var stacks := _stackable_item_stacks.get(category, []) as Array
+	while stacks.size() < get_backpack_capacity(category):
+		stacks.append({})
+	if (
+		source_index < 0
+		or source_index >= stacks.size()
+		or target_index < 0
+		or target_index >= stacks.size()
+		or source_index == target_index
+	):
+		return false
+	var source := stacks[source_index] as Dictionary
+	if source.is_empty():
+		return false
+	var target := stacks[target_index] as Dictionary
+	if target.is_empty():
+		stacks[target_index] = source
+		stacks[source_index] = {}
+	else:
+		var source_id := StringName(String(source.get("item_id", "")))
+		var target_id := StringName(String(target.get("item_id", "")))
+		if source_id == target_id:
+			var definition := DefinitionRegistry.get_stackable_item(source_id)
+			if definition == null:
+				return false
+			var target_quantity := maxi(int(target.get("quantity", 0)), 0)
+			var source_quantity := maxi(int(source.get("quantity", 0)), 0)
+			var moved := mini(definition.stack_limit - target_quantity, source_quantity)
+			if moved > 0:
+				target["quantity"] = target_quantity + moved
+				source_quantity -= moved
+				stacks[target_index] = target
+				stacks[source_index] = source if source_quantity > 0 else {}
+				if source_quantity > 0:
+					(stacks[source_index] as Dictionary)["quantity"] = source_quantity
+			else:
+				stacks[target_index] = source
+				stacks[source_index] = target
+		else:
+			stacks[target_index] = source
+			stacks[source_index] = target
+	_stackable_item_stacks[category] = stacks
+	stackable_inventory_changed.emit()
+	return true
+
+
+func collect_material(material_id: StringName, amount: int) -> Dictionary:
+	return collect_stackable_item(material_id, amount)
 
 
 func get_stardust_fragments() -> int:
-	return _stardust_fragments
+	return get_stackable_item_quantity(STARDUST_FRAGMENT_ID)
 
 
 func can_collect_pickups() -> bool:

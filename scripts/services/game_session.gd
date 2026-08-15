@@ -5,7 +5,7 @@ signal active_profile_changed(profile_id: String)
 signal save_status_changed(message: String, failed: bool)
 signal return_countdown_changed(message: String, active: bool)
 
-const SAVE_VERSION := 5
+const SAVE_VERSION := 6
 const SKILL_ENTITLEMENT_VERSION := 4
 const SLOT_COUNT := 3
 const DEFAULT_SAVE_ROOT := "user://profiles"
@@ -254,7 +254,7 @@ func create_character(slot_index: int, raw_name: String, profession_id: StringNa
 			"level": progression.starting_level if progression != null else 1,
 			"experience": progression.starting_experience if progression != null else 0,
 		},
-		"materials": {"stardust_fragment": 0},
+		"backpack": _default_backpack_snapshot(),
 		"skills": {
 			"unspent_points": progression.starting_skill_points if progression != null else 0,
 			"ranks": {},
@@ -393,7 +393,7 @@ func save_now(reason: StringName = &"manual") -> Dictionary:
 	if _active_player != null and is_instance_valid(_active_player):
 		var snapshot := _active_player.get_save_snapshot()
 		_active_profile["progression"] = snapshot.progression
-		_active_profile["materials"] = snapshot.materials
+		_active_profile["backpack"] = snapshot.backpack
 		_active_profile["equipment"] = snapshot.equipment
 		_active_profile["skills"] = snapshot.skills
 		_active_profile["skill_quickbar"] = snapshot.skill_quickbar
@@ -476,6 +476,8 @@ func _connect_player_signals(player: Player) -> void:
 		player.equipment_changed.connect(_on_equipment_changed)
 	if not player.equipment_inventory_changed.is_connected(_on_inventory_changed):
 		player.equipment_inventory_changed.connect(_on_inventory_changed)
+	if not player.stackable_inventory_changed.is_connected(_on_inventory_changed):
+		player.stackable_inventory_changed.connect(_on_inventory_changed)
 	if not player.skills_changed.is_connected(_on_skills_changed):
 		player.skills_changed.connect(_on_skills_changed)
 	if not player.respawned.is_connected(_on_player_respawned):
@@ -492,6 +494,7 @@ func _disconnect_player_signals() -> void:
 		["progression_changed", _on_progression_changed],
 		["equipment_changed", _on_equipment_changed],
 		["equipment_inventory_changed", _on_inventory_changed],
+		["stackable_inventory_changed", _on_inventory_changed],
 		["skills_changed", _on_skills_changed],
 		["respawned", _on_player_respawned],
 		["health_changed", _on_player_health_changed],
@@ -590,8 +593,25 @@ func _normalize_profile(raw: Variant) -> Dictionary:
 	profile["version"] = SAVE_VERSION
 	profile["play_time_seconds"] = maxi(int(profile.get("play_time_seconds", 0)), 0)
 	profile["progression"] = _normalize_progression(profile.get("progression", {}))
-	profile["materials"] = _normalize_materials(profile.get("materials", {}))
+	profile["backpack"] = _normalize_backpack(
+		profile.get("backpack", {}),
+		profile.get("materials", {}),
+		version
+	)
+	profile.erase("materials")
 	profile["equipment"] = _normalize_equipment(profile.get("equipment", {}), profession_id, version)
+	var normalized_inventory := (profile.equipment as Dictionary).get("inventory", []) as Array
+	var backpack := profile.backpack as Dictionary
+	var capacities := backpack.get("capacities", {}) as Dictionary
+	capacities["equipment"] = maxi(
+		maxi(
+			int(capacities.get("equipment", Player.DEFAULT_BACKPACK_CAPACITY)),
+			normalized_inventory.size()
+		),
+		Player.DEFAULT_BACKPACK_CAPACITY
+	)
+	backpack["capacities"] = capacities
+	profile["backpack"] = backpack
 	profile["skills"] = _normalize_skills(
 		profile.get("skills", {}),
 		profession_id,
@@ -620,9 +640,78 @@ func _normalize_progression(raw: Variant) -> Dictionary:
 	return {"level": maxi(int(source.get("level", 1)), 1), "experience": maxi(int(source.get("experience", 0)), 0)}
 
 
-func _normalize_materials(raw: Variant) -> Dictionary:
+func _default_backpack_snapshot() -> Dictionary:
+	var capacities: Dictionary = {}
+	var stacks: Dictionary = {}
+	for category in BackpackCategory.ALL:
+		capacities[String(category)] = Player.DEFAULT_BACKPACK_CAPACITY
+	for category in BackpackCategory.STACKABLE:
+		stacks[String(category)] = []
+	return {"capacities": capacities, "equipment_slots": [], "stacks": stacks}
+
+
+func _normalize_backpack(raw: Variant, legacy_materials_raw: Variant, source_version: int) -> Dictionary:
+	var result := _default_backpack_snapshot()
+	var capacities := result.capacities as Dictionary
+	var stacks := result.stacks as Dictionary
 	var source := raw as Dictionary if raw is Dictionary else {}
-	return {"stardust_fragment": maxi(int(source.get("stardust_fragment", 0)), 0)}
+	if source_version >= 6:
+		var raw_capacities := source.get("capacities", {}) as Dictionary
+		for category in BackpackCategory.ALL:
+			capacities[String(category)] = maxi(
+				int(raw_capacities.get(String(category), Player.DEFAULT_BACKPACK_CAPACITY)),
+				Player.DEFAULT_BACKPACK_CAPACITY
+			)
+		var raw_stacks := source.get("stacks", {}) as Dictionary
+		var equipment_slots: Array[String] = []
+		for raw_id in source.get("equipment_slots", []) as Array:
+			equipment_slots.append(String(raw_id))
+		result["equipment_slots"] = equipment_slots
+		for category in BackpackCategory.STACKABLE:
+			_normalize_stack_entries(
+				raw_stacks.get(String(category), []),
+				category,
+				stacks[String(category)] as Array
+			)
+	else:
+		var legacy_materials := legacy_materials_raw as Dictionary if legacy_materials_raw is Dictionary else {}
+		var legacy_stardust := maxi(int(legacy_materials.get("stardust_fragment", 0)), 0)
+		if legacy_stardust > 0:
+			_normalize_stack_entries(
+				[{"item_id": "stardust_fragment", "quantity": legacy_stardust}],
+				BackpackCategory.OTHER,
+				stacks[String(BackpackCategory.OTHER)] as Array
+			)
+	for category in BackpackCategory.STACKABLE:
+		capacities[String(category)] = maxi(
+			maxi(
+				int(capacities[String(category)]),
+				(stacks[String(category)] as Array).size()
+			),
+			Player.DEFAULT_BACKPACK_CAPACITY
+		)
+	return {"capacities": capacities, "stacks": stacks}
+
+
+func _normalize_stack_entries(raw: Variant, category: StringName, output: Array) -> void:
+	if not raw is Array:
+		return
+	for raw_stack in raw as Array:
+		if not raw_stack is Dictionary:
+			output.append({})
+			continue
+		var stack := raw_stack as Dictionary
+		var item_id := StringName(String(stack.get("item_id", "")))
+		var quantity := maxi(int(stack.get("quantity", 0)), 0)
+		var definition := DefinitionRegistry.get_stackable_item(item_id)
+		if definition == null or definition.category != category or quantity <= 0:
+			output.append({})
+			continue
+		var remaining := quantity
+		while remaining > 0:
+			var added := mini(definition.stack_limit, remaining)
+			output.append({"item_id": String(item_id), "quantity": added})
+			remaining -= added
 
 
 func _normalize_skills(
