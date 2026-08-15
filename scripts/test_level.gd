@@ -615,6 +615,7 @@ func _update_skills_panel() -> void:
 		child.queue_free()
 	_skill_buttons_by_id.clear()
 	_profession_skills = _player.get_profession_skills()
+	_profession_skills.sort_custom(_skill_tree_order_before)
 	_skills_empty_text.visible = _profession_skills.is_empty()
 	if _find_skill_index(previous_id) >= 0:
 		_selected_skill_id = previous_id
@@ -630,13 +631,16 @@ func _update_skills_panel() -> void:
 	for definition in _profession_skills:
 		var row := Button.new()
 		var rank := _player.get_skill_rank(definition.id)
+		var prerequisite_met := _is_skill_prerequisite_met(definition)
 		row.custom_minimum_size = Vector2(400.0, 54.0)
 		row.focus_mode = Control.FOCUS_NONE
-		row.text = "%s    %s    Lv.%d / %d" % [
+		row.text = "%s%s    %s    Lv.%d / %d%s" % [
+			_skill_tree_prefix(definition),
 			definition.display_name,
 			_skill_category_display_name(definition),
 			rank,
 			definition.get_maximum_rank(),
+			"    [前置未满足]" if definition.has_prerequisite() and not prerequisite_met else "",
 		]
 		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		row.set_meta(&"skill_id", definition.id)
@@ -659,6 +663,36 @@ func _find_skill_index(skill_id: StringName) -> int:
 		if _profession_skills[index].id == skill_id:
 			return index
 	return -1
+
+
+func _skill_tree_order_before(left: SkillDefinition, right: SkillDefinition) -> bool:
+	var left_rank := _skill_tree_order_rank(left)
+	var right_rank := _skill_tree_order_rank(right)
+	if left_rank != right_rank:
+		return left_rank < right_rank
+	return String(left.id) < String(right.id)
+
+
+func _skill_tree_order_rank(definition: SkillDefinition) -> int:
+	if definition.is_passive():
+		return 2
+	if definition.has_prerequisite():
+		return 1
+	return 0
+
+
+func _skill_tree_prefix(definition: SkillDefinition) -> String:
+	if definition.is_passive():
+		return "◆ "
+	if definition.has_prerequisite():
+		return "    └─ "
+	return "● "
+
+
+func _is_skill_prerequisite_met(definition: SkillDefinition) -> bool:
+	if not definition.has_prerequisite():
+		return true
+	return _player.get_skill_rank(definition.prerequisite_skill_id) >= definition.prerequisite_rank
 
 
 func _move_skill_selection(direction: int) -> void:
@@ -743,10 +777,21 @@ func _update_skill_detail() -> void:
 		definition.description,
 		"",
 		"类型：%s" % _skill_category_display_name(definition),
+		"成长位置：%s" % _skill_tree_position_text(definition),
 		"需求角色等级：%d" % definition.required_level,
 		"当前等级：%d / %d" % [rank, definition.get_maximum_rank()],
 		"当前效果：%s" % (definition.effect_text_at_rank(rank) if rank > 0 else "未学习，无效果"),
 	]
+	if definition.has_prerequisite():
+		var prerequisite := DefinitionRegistry.get_skill(definition.prerequisite_skill_id)
+		var prerequisite_name := prerequisite.display_name if prerequisite != null else String(definition.prerequisite_skill_id)
+		var prerequisite_current_rank := _player.get_skill_rank(definition.prerequisite_skill_id)
+		lines.insert(6, "前置要求：%s Lv.%d（当前 Lv.%d，%s）" % [
+			prerequisite_name,
+			definition.prerequisite_rank,
+			prerequisite_current_rank,
+			"已满足" if prerequisite_current_rank >= definition.prerequisite_rank else "未满足",
+		])
 	if rank < definition.get_maximum_rank():
 		lines.append("下一级效果：%s" % definition.effect_text_at_rank(next_rank))
 	if definition.is_active():
@@ -781,6 +826,14 @@ func _skill_category_display_name(definition: SkillDefinition) -> String:
 		SkillCategory.BASIC_STAT_PASSIVE:
 			return "基础属性被动"
 	return "未知类型"
+
+
+func _skill_tree_position_text(definition: SkillDefinition) -> String:
+	if definition.is_passive():
+		return "独立被动"
+	if definition.has_prerequisite():
+		return "进阶主动"
+	return "基础主动"
 
 
 func _skill_environment_text(definition: SkillDefinition) -> String:

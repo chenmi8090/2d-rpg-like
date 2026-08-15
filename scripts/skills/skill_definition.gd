@@ -25,6 +25,8 @@ enum DamageStat {
 @export var profession_ids: Array[StringName] = []
 @export_range(1, 200, 1) var required_level := 1
 @export var required_weapon_types: Array[StringName] = []
+@export var prerequisite_skill_id: StringName
+@export_range(0, 200, 1) var prerequisite_rank := 0
 
 @export_category("Active Rules")
 @export var allow_ground := true
@@ -72,6 +74,10 @@ func is_available_to_profession(profession_id: StringName) -> bool:
 	return profession_id in profession_ids
 
 
+func has_prerequisite() -> bool:
+	return prerequisite_skill_id != &""
+
+
 func damage_multiplier_at_rank(rank: int) -> float:
 	var valid_rank := clampi(rank, 0, get_maximum_rank())
 	if valid_rank <= 0:
@@ -109,6 +115,11 @@ func is_valid() -> bool:
 	for profession_id in profession_ids:
 		if profession_id == &"":
 			return false
+	if has_prerequisite():
+		if prerequisite_skill_id == id or prerequisite_rank <= 0:
+			return false
+	elif prerequisite_rank != 0:
+		return false
 	if is_passive():
 		return (
 			category == SkillCategory.BASIC_STAT_PASSIVE

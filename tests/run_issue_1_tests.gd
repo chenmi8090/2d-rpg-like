@@ -227,11 +227,11 @@ func _run() -> void:
 	root.add_child(v3_level)
 	_expect(session.bind_level(v3_level, v3_player).ok, "v3 技能档案可以应用到玩家")
 	_expect(v3_player.get_skill_rank(&"blade_wave") == 2, "v3 迁移保留有效技能等级")
-	_expect(v3_player.get_skill_rank(&"power_strike") == 1, "v3 迁移保留第二项有效技能等级")
-	_expect(v3_player.get_skill_points() == 16, "v3 迁移只补足尚未计入的历史等级点数")
+	_expect(v3_player.get_skill_rank(&"power_strike") == 0, "v3 迁移清理不满足前置条件的进阶技能")
+	_expect(v3_player.get_skill_points() == 17, "v3 迁移返还无效进阶技能并补足历史等级点数")
 	_expect(
-		v3_player.get_skill_quickbar() == [&"blade_wave", &"power_strike"],
-		"v3 迁移保留有效主动技能快捷栏"
+		v3_player.get_skill_quickbar() == [&"blade_wave", &""],
+		"v3 迁移清理未满足前置条件的快捷栏技能"
 	)
 	session.unbind_level(v3_level)
 	v3_player.queue_free()

@@ -22,6 +22,7 @@ func load_snapshot(snapshot: Dictionary, profession_id: StringName) -> void:
 		var rank := clampi(int(raw_ranks[raw_skill_id]), 0, definition.get_maximum_rank())
 		if rank > 0:
 			_ranks[skill_id] = rank
+	_refund_invalid_prerequisite_ranks(profession_id)
 
 
 func to_snapshot() -> Dictionary:
@@ -66,6 +67,9 @@ func get_rank_up_status(
 	var rank := get_rank(skill_id)
 	if rank >= definition.get_maximum_rank():
 		return _failure("技能已达到最高等级")
+	var prerequisite_status := _get_prerequisite_status(definition)
+	if not bool(prerequisite_status.get("ok", false)):
+		return prerequisite_status
 	if unspent_points <= 0:
 		return _failure("技能点不足")
 	return {
@@ -105,6 +109,15 @@ func get_rank_down_status(skill_id: StringName, profession_id: StringName) -> Di
 	var rank := get_rank(skill_id)
 	if rank <= 0:
 		return _failure("技能尚未学习")
+	var dependent := _find_blocking_dependent(skill_id, rank - 1, profession_id)
+	if dependent != null:
+		return _failure(
+			"“%s”需要“%s”保持 %d 级，当前不能继续降低" % [
+				dependent.display_name,
+				definition.display_name,
+				dependent.prerequisite_rank,
+			]
+		)
 	return {
 		"ok": true,
 		"message": "可以减点",
@@ -129,6 +142,63 @@ func decrease_rank(skill_id: StringName, profession_id: StringName) -> Dictionar
 		"rank": next_rank,
 		"unspent_points": unspent_points,
 	}
+
+
+func _get_prerequisite_status(definition: SkillDefinition) -> Dictionary:
+	if not definition.has_prerequisite():
+		return {"ok": true, "message": ""}
+	var prerequisite := DefinitionRegistry.get_skill(definition.prerequisite_skill_id)
+	if prerequisite == null:
+		return _failure("技能前置配置无效")
+	var current_rank := get_rank(prerequisite.id)
+	if current_rank < definition.prerequisite_rank:
+		return _failure(
+			"需要“%s”达到 %d 级" % [
+				prerequisite.display_name,
+				definition.prerequisite_rank,
+			]
+		)
+	return {"ok": true, "message": ""}
+
+
+func _find_blocking_dependent(
+	skill_id: StringName,
+	resulting_rank: int,
+	profession_id: StringName
+) -> SkillDefinition:
+	var profession := DefinitionRegistry.get_profession(profession_id)
+	if profession == null:
+		return null
+	for dependent_id in profession.skill_ids:
+		var dependent := DefinitionRegistry.get_skill(dependent_id)
+		if (
+			dependent != null
+			and dependent.prerequisite_skill_id == skill_id
+			and get_rank(dependent.id) > 0
+			and resulting_rank < dependent.prerequisite_rank
+		):
+			return dependent
+	return null
+
+
+func _refund_invalid_prerequisite_ranks(profession_id: StringName) -> void:
+	var profession := DefinitionRegistry.get_profession(profession_id)
+	if profession == null:
+		return
+	var changed := true
+	while changed:
+		changed = false
+		for skill_id in profession.skill_ids:
+			var rank := get_rank(skill_id)
+			if rank <= 0:
+				continue
+			var definition := DefinitionRegistry.get_skill(skill_id)
+			if definition == null or not definition.has_prerequisite():
+				continue
+			if not bool(_get_prerequisite_status(definition).get("ok", false)):
+				_ranks.erase(skill_id)
+				unspent_points += rank
+				changed = true
 
 
 func _failure(message: String) -> Dictionary:

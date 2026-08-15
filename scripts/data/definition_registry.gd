@@ -97,6 +97,43 @@ static func get_skill(skill_id: StringName) -> SkillDefinition:
 	return definition
 
 
+static func validate_skills() -> Dictionary:
+	var definitions := get_skills()
+	if definitions.size() != SKILL_IDS.size():
+		return {"ok": false, "message": "技能定义无法完整载入"}
+	for definition in definitions:
+		var prerequisite_validation := validate_skill_prerequisite(definition)
+		if not bool(prerequisite_validation.get("ok", false)):
+			return prerequisite_validation
+		if not definition.has_prerequisite():
+			continue
+		var prerequisite := get_skill(definition.prerequisite_skill_id)
+		var seen: Dictionary = {definition.id: true}
+		var current := prerequisite
+		while current != null and current.has_prerequisite():
+			if seen.has(current.id):
+				return {"ok": false, "message": "%s 的前置技能形成循环" % definition.display_name}
+			seen[current.id] = true
+			current = get_skill(current.prerequisite_skill_id)
+	return {"ok": true, "message": ""}
+
+
+static func validate_skill_prerequisite(definition: SkillDefinition) -> Dictionary:
+	if definition == null or not definition.is_valid():
+		return {"ok": false, "message": "技能定义无效"}
+	if not definition.has_prerequisite():
+		return {"ok": true, "message": ""}
+	var prerequisite := get_skill(definition.prerequisite_skill_id)
+	if prerequisite == null:
+		return {"ok": false, "message": "%s 的前置技能无效" % definition.display_name}
+	if definition.prerequisite_rank > prerequisite.get_maximum_rank():
+		return {"ok": false, "message": "%s 的前置等级超过技能上限" % definition.display_name}
+	for profession_id in definition.profession_ids:
+		if not prerequisite.is_available_to_profession(profession_id):
+			return {"ok": false, "message": "%s 的前置技能不属于同一职业" % definition.display_name}
+	return {"ok": true, "message": ""}
+
+
 static func get_map(map_id: StringName) -> MapDefinition:
 	var path := String(MAP_PATHS.get(map_id, ""))
 	if path.is_empty():

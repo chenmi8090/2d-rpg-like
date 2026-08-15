@@ -164,7 +164,7 @@ func _test_active_skill_runtime() -> void:
 	profile["skills"] = {
 		"unspent_points": 0,
 		"ranks": {
-			"blade_wave": 2,
+			"blade_wave": 3,
 			"power_strike": 1,
 			"traveler_vitality": 1,
 		},
@@ -182,10 +182,10 @@ func _test_active_skill_runtime() -> void:
 	_expect(cast_result.ok, "已学习且允许空中使用的技能可以施放")
 	_expect(player.current_state == Player.State.ATTACK, "主动技能复用统一攻击状态")
 	_expect(player._current_attack_type == Player.AttackType.SKILL, "主动技能具有独立攻击类型")
-	_expect(player._current_skill_rank == 2, "施放快照记录当前技能等级")
+	_expect(player._current_skill_rank == 3, "施放快照记录当前技能等级")
 	var metadata := player._current_skill_metadata()
 	_expect(metadata.get("skill_id") == &"blade_wave", "技能命中 metadata 使用稳定 skill_id")
-	_expect(int(metadata.get("skill_rank", 0)) == 2, "技能命中 metadata 包含真实等级")
+	_expect(int(metadata.get("skill_rank", 0)) == 3, "技能命中 metadata 包含真实等级")
 	_expect(player.get_skill_cooldown_remaining(&"blade_wave") > 0.0, "技能冷却按稳定技能 ID 启动")
 	player._cancel_attack()
 	_expect(not player.cast_skill(&"blade_wave").ok, "取消施放不能绕过已启动的冷却")
