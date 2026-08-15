@@ -142,16 +142,18 @@ Combat and movement inputs are isolated while interface panels are open. The cur
 - New save data must be versioned, migrated safely, and tested without writing to real player saves.
 - Temporary UI must remain clear and usable, but final art and complex presentation wait until gameplay systems stabilize.
 
-## Next milestone: stackable material inventory
+## Next milestone: categorized backpack and stackable items
 
-The equipment backpack is instance-based and complete for its current scope, but non-equipment materials still use one hard-coded `stardust_fragment` counter. The next milestone should establish a general per-character material inventory before consumables, shops, quests, reinforcement, or crafting depend on item quantities.
+The current backpack only manages unique equipment instances, while non-equipment materials still use one hard-coded `stardust_fragment` counter. The next milestone should establish four stable backpack categories—equipment, consumables, other items, and quest items—and a general per-character stackable-item inventory before item use, shops, quests, reinforcement, or crafting depend on those boundaries.
 
 Planned scope:
 
-- Define stable, data-driven material identities and player-facing names.
-- Store non-negative stack quantities per character without mixing them with unique equipment instances.
-- Replace the hard-coded stardust counter with generic material collection and quantity queries.
-- Provide a minimal functional material list without treating the work as a broader interface redesign.
+- Add four fixed backpack tabs in this order: equipment, consumables, other items, and quest items.
+- Keep equipment as unique instances and store non-equipment items as non-negative stack quantities per character.
+- Define stable, data-driven stackable-item identities, categories, player-facing names, descriptions, and quantity limits.
+- Place materials such as `stardust_fragment` in the other-item tab.
+- Replace the hard-coded stardust counter with generic stackable-item collection, quantity, and removal APIs while preserving compatibility wrappers.
+- Provide a minimal functional categorized backpack without treating the work as a broader interface redesign.
 - Migrate existing `stardust_fragment` save quantities without loss or cross-character contamination.
 - Preserve pickup cleanup, autosave, backup recovery, map travel, death, respawn, and reset behavior.
 - Extend automated coverage and run the full existing regression suite.
@@ -160,7 +162,7 @@ Planned scope:
 
 These items remain later milestones unless promoted into a reviewed Issue:
 
-- Add consumables and other stackable item behavior after the material inventory boundary is stable.
+- Add consumable use effects after categorized storage is stable.
 - Add a safe town, NPCs, dialogue, shops, currency, quests, and quest tracking.
 - Add equipment reinforcement, crafting, storage, and other long-term equipment-growth functions as separately reviewed systems.
 - Add moving platforms, ladders, ropes, and other traversal types currently reserved by the controls.
