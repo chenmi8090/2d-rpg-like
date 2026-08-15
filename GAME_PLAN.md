@@ -65,7 +65,9 @@ The current game remains an endless combat and farming prototype. Clearing all v
 - Each current profession has two default learned active skills using melee, projectile, ground-only, air-capable, and controlled-knockback behavior.
 - Skills use startup, active, recovery, and independent cooldown phases and reuse the existing hitbox, projectile, damage, critical, metadata, and reaction pipelines.
 - Skill input, effects, projectiles, and cooldown state are handled safely across UI isolation, hit interruption, death, respawn, reset, save application, character changes, and scene exit.
-- The current skill panel and two shortcut slots are a foundation only; a learnable skill tree, skill-point allocation, respec, and shortcut editing are not implemented.
+- Profession skills can define a single same-profession prerequisite and required rank; advanced skills cannot be learned or leave their prerequisite below the required rank.
+- The current mouse-driven skill panel groups base active, advanced active, and independent passive skills and shows prerequisite status with safe rank increase/decrease controls.
+- A full graphical branching skill tree, respec economy, and mouse-driven shortcut editing are not implemented.
 
 ### World maps and encounters - Issues #13-#14
 
@@ -115,6 +117,7 @@ Combat and movement inputs are isolated while interface panels are open. The cur
 | #12 | Complete | Data-driven profession active-skill definitions, casting, cooldowns, ownership boundaries, and two temporary slots |
 | #13 | Complete | World-map definitions, branching bidirectional travel, checkpoints, continue positions, and save migration |
 | #14 | Complete | Per-map encounters, unified respawn timing, map isolation, drop cleanup, and repeatable farming |
+| #15 | Complete | Advanced-skill prerequisites, protected rank reduction, legacy-save refunds, and clearer skill hierarchy |
 
 ## Compatibility rules for future work
 
