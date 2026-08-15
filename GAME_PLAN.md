@@ -8,7 +8,7 @@ The project is developed as a playable vertical slice: establish stable gameplay
 
 Create a character -> choose a permanent profession -> explore connected maps -> fight repeatable encounters -> gain experience, materials, and equipment -> improve the character -> continue from saved world progress.
 
-The current game remains an endless combat and farming prototype. Clearing all visible enemies does not complete a map, portals do not require clearing enemies, and there is no dungeon, boss, region-clear, or victory flow yet.
+The game is built around endless combat, farming, character growth, and equipment replacement. Clearing visible enemies does not complete a map, portals do not require clearing enemies, and the game does not introduce a global clear, ending, or victory state. Future enemies, elite monsters, bosses, and regions remain repeatable sources of progression rather than steps toward finishing the game.
 
 ## Current playable milestone
 
@@ -137,37 +137,40 @@ Combat and movement inputs are isolated while interface panels are open. The cur
 - Preserve existing movement, one-way-platform, attack, hit-reaction, death, respawn, inventory, skill, save, and map-transition behavior.
 - Continue reusing the shared hitbox, projectile, hit metadata, reaction, equipment-instance, skill-definition, world-definition, and encounter pipelines.
 - Continue location and checkpoint respawn location must remain independent.
-- Enemies remain infinitely repeatable unless a future dungeon or challenge explicitly defines a separate completion rule.
+- Enemies, elite monsters, bosses, and farming regions remain repeatable; future systems must not introduce a global clear, ending, or victory state.
 - Ordinary enemies do not show explicit attack-range boxes, player damage does not add a circular aura, and global hit stop is not introduced by default.
 - New save data must be versioned, migrated safely, and tested without writing to real player saves.
 - Temporary UI must remain clear and usable, but final art and complex presentation wait until gameplay systems stabilize.
 
-## Next milestone: broader profession growth and skill content
+## Next milestone: stackable material inventory
 
-Issues #12, #15, and #16 established learnable skill ranks, prerequisites, active-skill casting, and mouse-driven shortcut assignment. The next milestone should expand profession identity and content without rewriting those stable data and combat boundaries.
+The equipment backpack is instance-based and complete for its current scope, but non-equipment materials still use one hard-coded `stardust_fragment` counter. The next milestone should establish a general per-character material inventory before consumables, shops, quests, reinforcement, or crafting depend on item quantities.
 
 Planned scope:
 
-- Add more profession-specific active and passive skills while preserving permanent profession binding.
-- Expand branches beyond the current single prerequisite chain without mutating shared skill resources.
-- Decide whether each profession needs a dedicated combat resource before adding resource-dependent skills.
-- Define a safe respec economy that cannot change profession or corrupt learned-skill dependencies.
-- Replace the lightweight hierarchy with a dedicated graphical skill tree when its UI scope is reviewed.
-- Continue persisting skill ranks and shortcut assignments with migration and character isolation.
-- Extend automated coverage and run the full existing regression suite for each reviewed Issue.
+- Define stable, data-driven material identities and player-facing names.
+- Store non-negative stack quantities per character without mixing them with unique equipment instances.
+- Replace the hard-coded stardust counter with generic material collection and quantity queries.
+- Provide a minimal functional material list without treating the work as a broader interface redesign.
+- Migrate existing `stardust_fragment` save quantities without loss or cross-character contamination.
+- Preserve pickup cleanup, autosave, backup recovery, map travel, death, respawn, and reset behavior.
+- Extend automated coverage and run the full existing regression suite.
 
 ## Remaining vertical-slice backlog
 
 These items remain later milestones unless promoted into a reviewed Issue:
 
-- Complete profession stat growth, resource types, resistances, and broader equipment restrictions.
-- Add consumables and complete material/other-item inventory behavior.
+- Add consumables and other stackable item behavior after the material inventory boundary is stable.
 - Add a safe town, NPCs, dialogue, shops, currency, quests, and quest tracking.
-- Add new normal enemies, an elite enemy, a dungeon, a regional boss, and explicit challenge completion rules.
-- Add regional drops and enough content to form one complete playable region.
+- Add equipment reinforcement, crafting, storage, and other long-term equipment-growth functions as separately reviewed systems.
 - Add moving platforms, ladders, ropes, and other traversal types currently reserved by the controls.
-- Expand equipment with a larger affix system, reinforcement, durability, crafting, sets, or storage only after their individual scopes are defined.
-- Add settings, input rebinding, controller support, accessibility options, and onboarding.
+- Add settings, input rebinding, accessibility options, and onboarding.
+- Complete profession stat growth, resource types, resistances, and broader equipment restrictions after shared gameplay functions are stable.
+- Expand profession skills and replace the lightweight skill hierarchy only after shared gameplay functions and farming systems are complete.
+- Add new normal enemies, elite enemies, repeatable bosses, and additional farming regions without introducing a victory state.
+- Add regional drops and enough content to form a coherent repeatable farming region.
+- Expand equipment affixes, durability, sets, or other content only after their individual functional scopes are defined.
+- Add controller support without replacing Windows keyboard access.
 - Revisit combat audio only if Issue #8 is explicitly restored to the plan.
 - Add background music, environment audio, final animation, final artwork, and presentation polish after the gameplay slice stabilizes.
 
