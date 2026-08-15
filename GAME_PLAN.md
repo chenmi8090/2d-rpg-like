@@ -8,7 +8,7 @@ The project is developed as a playable vertical slice: establish stable gameplay
 
 Create a character -> choose a permanent profession -> explore connected maps -> fight repeatable encounters -> gain experience, materials, and equipment -> improve the character -> continue from saved world progress.
 
-The game is built around endless combat, farming, character growth, and equipment replacement. Clearing visible enemies does not complete a map, portals do not require clearing enemies, and the game does not introduce a global clear, ending, or victory state. Future enemies, elite monsters, bosses, and regions remain repeatable sources of progression rather than steps toward finishing the game.
+The game is built around endless combat, farming, character growth, and equipment replacement. Clearing visible enemies does not complete a map, portals do not require clearing enemies, and the game does not introduce map-completion, ending, or victory states. Future enemies, elite monsters, bosses, and regions remain repeatable sources of progression rather than steps toward finishing the game.
 
 ## Current playable milestone
 
@@ -137,7 +137,7 @@ Combat and movement inputs are isolated while interface panels are open. The cur
 - Preserve existing movement, one-way-platform, attack, hit-reaction, death, respawn, inventory, skill, save, and map-transition behavior.
 - Continue reusing the shared hitbox, projectile, hit metadata, reaction, equipment-instance, skill-definition, world-definition, and encounter pipelines.
 - Continue location and checkpoint respawn location must remain independent.
-- Enemies, elite monsters, bosses, and farming regions remain repeatable; future systems must not introduce a global clear, ending, or victory state.
+- Enemies, elite monsters, bosses, and farming regions remain repeatable; future systems must not introduce map-completion, ending, or victory states.
 - Ordinary enemies do not show explicit attack-range boxes, player damage does not add a circular aura, and global hit stop is not introduced by default.
 - New save data must be versioned, migrated safely, and tested without writing to real player saves.
 - Temporary UI must remain clear and usable, but final art and complex presentation wait until gameplay systems stabilize.
