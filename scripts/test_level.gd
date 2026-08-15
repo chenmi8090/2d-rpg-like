@@ -30,6 +30,18 @@ const SELECTED_COLOR := Color("ffe17a")
 @onready var _experience_fill: ColorRect = $Interface/HealthPanel/ExpFill
 @onready var _experience_text: Label = $Interface/HealthPanel/ExpText
 @onready var _level_up_text: Label = $Interface/LevelUpText
+@onready var _skill_hud_slots: Array[PanelContainer] = [
+	$Interface/SkillQuickbarHUD/Slot1,
+	$Interface/SkillQuickbarHUD/Slot2,
+]
+@onready var _skill_hud_names: Array[Label] = [
+	$Interface/SkillQuickbarHUD/Slot1/Content/NameText,
+	$Interface/SkillQuickbarHUD/Slot2/Content/NameText,
+]
+@onready var _skill_hud_statuses: Array[Label] = [
+	$Interface/SkillQuickbarHUD/Slot1/Content/StatusText,
+	$Interface/SkillQuickbarHUD/Slot2/Content/StatusText,
+]
 @onready var _backpack_panel: Control = $Interface/BackpackPanel
 @onready var _backpack_scroll: ScrollContainer = $Interface/BackpackPanel/ItemScroll
 @onready var _backpack_list: GridContainer = $Interface/BackpackPanel/ItemScroll/ItemList
@@ -85,6 +97,7 @@ var _pending_discard_index := -1
 var _selected_skill_id: StringName = &""
 var _profession_skills: Array[SkillDefinition] = []
 var _skill_buttons_by_id: Dictionary = {}
+var _skill_hud_states: Array[StringName] = [&"", &""]
 var _level_up_tween: Tween
 var _reminder_versions: Dictionary = {}
 
@@ -103,9 +116,11 @@ func _ready() -> void:
 	_player.level_up.connect(_show_level_up)
 	_player.stats_changed.connect(_update_attributes_panel)
 	_player.equipment_changed.connect(_on_player_equipment_changed)
+	_player.equipment_changed.connect(_update_skill_quickbar_hud)
 	_player.equipment_inventory_changed.connect(_update_backpack_panel)
 	_player.equipment_equip_failed.connect(_on_equipment_equip_failed)
 	_player.skills_changed.connect(_update_skills_panel)
+	_player.skills_changed.connect(_update_skill_quickbar_hud)
 	_skills_decrease_button.pressed.connect(_decrease_selected_skill_rank)
 	_skills_increase_button.pressed.connect(_increase_selected_skill_rank)
 	_encounter_manager.experience_reward_accepted.connect(_on_experience_reward_accepted)
@@ -122,12 +137,14 @@ func _ready() -> void:
 	_update_equipment_panel()
 	_update_backpack_panel()
 	_update_skills_panel()
+	_update_skill_quickbar_hud()
 	_connect_enemy_drop_sources()
 	get_tree().node_added.connect(_on_node_added)
 
 
 func _process(_delta: float) -> void:
 	_update_world_interaction()
+	_update_skill_quickbar_hud()
 
 
 func _exit_tree() -> void:
@@ -455,6 +472,49 @@ func _apply_ui_foundation() -> void:
 	_return_status_text.add_theme_color_override("font_color", UI_STYLE.TEXT_WARNING)
 	_backpack_feedback_text.add_theme_color_override("font_color", UI_STYLE.TEXT_WARNING)
 	_skills_feedback_text.add_theme_color_override("font_color", UI_STYLE.TEXT_WARNING)
+	for slot in _skill_hud_slots:
+		UI_STYLE.apply_panel_container(slot, true)
+
+
+func _update_skill_quickbar_hud() -> void:
+	for slot_index in _skill_hud_slots.size():
+		var status := _player.get_skill_hud_status(slot_index)
+		var state := StringName(status.get("state", &"empty"))
+		var display_name := String(status.get("display_name", "未配置"))
+		var message := String(status.get("message", "未配置"))
+		_skill_hud_names[slot_index].text = display_name
+		_skill_hud_statuses[slot_index].text = message
+		if _skill_hud_states[slot_index] != state:
+			_skill_hud_states[slot_index] = state
+			_apply_skill_hud_state(slot_index, state)
+
+
+func _apply_skill_hud_state(slot_index: int, state: StringName) -> void:
+	var background := UI_STYLE.SLOT_BG
+	var border := UI_STYLE.PANEL_BORDER
+	var name_color := UI_STYLE.TEXT_PRIMARY
+	var status_color := UI_STYLE.TEXT_MUTED
+	match state:
+		&"ready":
+			background = Color("183a33ee")
+			border = Color("66a683")
+			status_color = UI_STYLE.TEXT_SUCCESS
+		&"cooldown":
+			background = Color("252b34ee")
+			border = Color("596572")
+			name_color = Color("a6afb6")
+			status_color = Color("d1b36d")
+		&"unavailable":
+			background = Color("33252aee")
+			border = Color("86565a")
+			name_color = UI_STYLE.TEXT_DISABLED
+			status_color = UI_STYLE.TEXT_DANGER
+	_skill_hud_slots[slot_index].add_theme_stylebox_override(
+		"panel",
+		UI_STYLE.style_box(background, border, 1, 6)
+	)
+	_skill_hud_names[slot_index].add_theme_color_override("font_color", name_color)
+	_skill_hud_statuses[slot_index].add_theme_color_override("font_color", status_color)
 
 
 func _unhandled_input(event: InputEvent) -> void:

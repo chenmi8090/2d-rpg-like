@@ -543,6 +543,37 @@ func get_skill_cooldown_remaining(skill_id: StringName) -> float:
 	return maxf(float(_skill_cooldowns.get(skill_id, 0.0)) - _elapsed_time, 0.0)
 
 
+func get_skill_hud_status(slot_index: int) -> Dictionary:
+	if slot_index < 0 or slot_index >= _skill_quickbar.size():
+		return {"state": &"empty", "message": "未配置", "skill_id": &""}
+	var skill_id := _skill_quickbar[slot_index]
+	if skill_id == &"":
+		return {"state": &"empty", "message": "未配置", "skill_id": &""}
+	var definition := DefinitionRegistry.get_skill(skill_id)
+	if definition == null or not definition.is_active():
+		return {"state": &"unavailable", "message": "配置无效", "skill_id": skill_id}
+	var base_status := {
+		"skill_id": skill_id,
+		"display_name": definition.display_name,
+		"cooldown_remaining": get_skill_cooldown_remaining(skill_id),
+	}
+	if not definition.is_available_to_profession(get_profession_id()):
+		base_status.merge({"state": &"unavailable", "message": "职业不符"})
+		return base_status
+	if get_skill_rank(skill_id) <= 0:
+		base_status.merge({"state": &"unavailable", "message": "尚未学习"})
+		return base_status
+	if not _equipped_weapon_satisfies_skill(definition):
+		base_status.merge({"state": &"unavailable", "message": "武器不符"})
+		return base_status
+	var cooldown_remaining := float(base_status.cooldown_remaining)
+	if cooldown_remaining > 0.0:
+		base_status.merge({"state": &"cooldown", "message": "冷却 %.1f 秒" % cooldown_remaining})
+		return base_status
+	base_status.merge({"state": &"ready", "message": "可用"})
+	return base_status
+
+
 func can_cast_skill(skill_id: StringName) -> Dictionary:
 	var definition := DefinitionRegistry.get_skill(skill_id)
 	return _get_skill_cast_status(definition)
