@@ -30,7 +30,7 @@ position = Vector2(100, 560)
 interaction_radius = 82.0
 target_map_id = &"test_level"
 target_entry_id = &"from_passage_1"
-interaction_prompt = "按 W 返回 战斗试验场"
+interaction_prompt = "按 ↑ 返回 战斗试验场"
 
 [sub_resource type="Resource" id="PortalA"]
 script = ExtResource("3")
@@ -39,7 +39,7 @@ position = Vector2(1450, 560)
 interaction_radius = 82.0
 target_map_id = &"field_passage_2"
 target_entry_id = &"from_field_passage_1"
-interaction_prompt = "按 W 前往 野外通道-2"
+interaction_prompt = "按 ↑ 前往 野外通道-2"
 
 [sub_resource type="Resource" id="PortalB"]
 script = ExtResource("3")
@@ -48,7 +48,7 @@ position = Vector2(2700, 560)
 interaction_radius = 82.0
 target_map_id = &"field_passage_3"
 target_entry_id = &"from_field_passage_1"
-interaction_prompt = "按 W 前往 野外通道-3"
+interaction_prompt = "按 ↑ 前往 野外通道-3"
 
 [resource]
 script = ExtResource("1")

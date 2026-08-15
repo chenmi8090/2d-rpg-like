@@ -52,6 +52,8 @@ const SELECTED_COLOR := Color("ffe17a")
 @onready var _skills_list: VBoxContainer = $Interface/SkillsPanel/SkillScroll/SkillList
 @onready var _skills_empty_text: Label = $Interface/SkillsPanel/EmptyText
 @onready var _skills_detail_text: Label = $Interface/SkillsPanel/DetailPanel/DetailText
+@onready var _skills_decrease_button: Button = $Interface/SkillsPanel/DetailPanel/DecreaseButton
+@onready var _skills_increase_button: Button = $Interface/SkillsPanel/DetailPanel/IncreaseButton
 @onready var _skills_quickbar_text: Label = $Interface/SkillsPanel/QuickbarText
 @onready var _skills_feedback_text: Label = $Interface/SkillsPanel/FeedbackText
 @onready var _return_button: Button = $Interface/SessionPanel/ReturnButton
@@ -104,6 +106,8 @@ func _ready() -> void:
 	_player.equipment_inventory_changed.connect(_update_backpack_panel)
 	_player.equipment_equip_failed.connect(_on_equipment_equip_failed)
 	_player.skills_changed.connect(_update_skills_panel)
+	_skills_decrease_button.pressed.connect(_decrease_selected_skill_rank)
+	_skills_increase_button.pressed.connect(_increase_selected_skill_rank)
 	_encounter_manager.experience_reward_accepted.connect(_on_experience_reward_accepted)
 	_return_button.pressed.connect(_on_return_button_pressed)
 	GameSession.save_status_changed.connect(_on_save_status_changed)
@@ -431,6 +435,8 @@ func _apply_ui_foundation() -> void:
 	$Interface/SkillsPanel/Background.color = UI_STYLE.PANEL_BG_ELEVATED
 	$Interface/SkillsPanel/Header.color = UI_STYLE.HEADER_BG
 	$Interface/SkillsPanel/DetailPanel.color = UI_STYLE.DETAIL_BG
+	UI_STYLE.apply_button(_skills_decrease_button)
+	UI_STYLE.apply_button(_skills_increase_button)
 	for title_path in [
 		NodePath("Interface/BackpackPanel/Title"),
 		NodePath("Interface/AttributesPanel/Title"),
@@ -517,9 +523,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.is_action_pressed("toggle_attributes"):
 			if not echoed:
 				_set_attributes_panel_visible(true)
-		elif event.is_action_pressed("light_attack"):
-			if not echoed:
-				_increase_selected_skill_rank()
 		elif event.is_action_pressed("skill_slot_1"):
 			if not echoed:
 				_assign_selected_skill_to_slot(0)
@@ -701,6 +704,15 @@ func _increase_selected_skill_rank() -> void:
 	_show_reminder(_skills_feedback_text, String(result.get("message", "加点失败")))
 
 
+func _decrease_selected_skill_rank() -> void:
+	if _selected_skill_id == &"":
+		_show_reminder(_skills_feedback_text, "没有可减点的技能")
+		return
+	var result := _player.decrease_skill_rank(_selected_skill_id)
+	_update_skills_panel()
+	_show_reminder(_skills_feedback_text, String(result.get("message", "减点失败")))
+
+
 func _assign_selected_skill_to_slot(slot_index: int) -> void:
 	if _selected_skill_id == &"":
 		_show_reminder(_skills_feedback_text, "没有可配置的技能")
@@ -717,9 +729,14 @@ func _update_skill_detail() -> void:
 	var definition := DefinitionRegistry.get_skill(_selected_skill_id)
 	if definition == null or not definition.is_available_to_profession(_player.get_profession_id()):
 		_skills_detail_text.text = "选择技能查看详情"
+		_skills_decrease_button.disabled = true
+		_skills_increase_button.disabled = true
 		return
 	var rank := _player.get_skill_rank(definition.id)
 	var status := _player.get_skill_rank_up_status(definition.id)
+	var down_status := _player.get_skill_rank_down_status(definition.id)
+	_skills_increase_button.disabled = not bool(status.get("ok", false))
+	_skills_decrease_button.disabled = not bool(down_status.get("ok", false))
 	var next_rank := mini(rank + 1, definition.get_maximum_rank())
 	var lines: Array[String] = [
 		definition.display_name,
@@ -741,7 +758,8 @@ func _update_skill_detail() -> void:
 				weapon_names.append(_weapon_type_display_name(weapon_type))
 			lines.append("武器要求：%s" % " / ".join(weapon_names))
 	lines.append("")
-	lines.append("加点状态：%s" % String(status.get("message", "无法加点")))
+	lines.append("升级状态：%s" % String(status.get("message", "无法升级")))
+	lines.append("降级状态：%s" % String(down_status.get("message", "无法降级")))
 	_skills_detail_text.text = "\n".join(lines)
 
 
@@ -1158,7 +1176,7 @@ func _open_discard_confirmation() -> void:
 		return
 	_pending_discard_instance_id = item.instance_id
 	_pending_discard_index = _find_backpack_index(item.instance_id)
-	_discard_confirmation_text.text = "确定丢弃这件装备？\n\n%s\n\nJ 确认    Esc 取消" % EquipmentTextFormatter.format_equipment_detail(item)
+	_discard_confirmation_text.text = "确定丢弃这件装备？\n\n%s\n\nZ 确认    Esc 取消" % EquipmentTextFormatter.format_equipment_detail(item)
 	_discard_confirmation.visible = true
 
 
@@ -1317,7 +1335,7 @@ func _update_world_interaction() -> void:
 	_active_checkpoint = _nearest_checkpoint()
 	_active_portal = null if _portal_transition_locked else _nearest_portal()
 	if _has_activatable_checkpoint():
-		_interaction_prompt_text.text = "按 W 激活 %s" % _active_checkpoint.display_name
+		_interaction_prompt_text.text = "按 ↑ 激活 %s" % _active_checkpoint.display_name
 		_interaction_prompt_text.visible = true
 		return
 	if _active_portal == null:
@@ -1326,7 +1344,7 @@ func _update_world_interaction() -> void:
 	_interaction_prompt_text.text = (
 		_active_portal.interaction_prompt
 		if not _active_portal.interaction_prompt.is_empty()
-		else "按 W 进入传送门"
+		else "按 ↑ 进入传送门"
 	)
 	_interaction_prompt_text.visible = true
 

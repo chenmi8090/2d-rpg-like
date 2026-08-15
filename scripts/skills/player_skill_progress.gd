@@ -96,5 +96,40 @@ func increase_rank(
 	}
 
 
+func get_rank_down_status(skill_id: StringName, profession_id: StringName) -> Dictionary:
+	var definition := DefinitionRegistry.get_skill(skill_id)
+	if definition == null:
+		return _failure("技能定义不存在")
+	if not definition.is_available_to_profession(profession_id):
+		return _failure("当前职业无法调整该技能")
+	var rank := get_rank(skill_id)
+	if rank <= 0:
+		return _failure("技能尚未学习")
+	return {
+		"ok": true,
+		"message": "可以减点",
+		"current_rank": rank,
+	}
+
+
+func decrease_rank(skill_id: StringName, profession_id: StringName) -> Dictionary:
+	var status := get_rank_down_status(skill_id, profession_id)
+	if not bool(status.get("ok", false)):
+		return status
+	var next_rank := get_rank(skill_id) - 1
+	if next_rank <= 0:
+		_ranks.erase(skill_id)
+	else:
+		_ranks[skill_id] = next_rank
+	unspent_points += 1
+	return {
+		"ok": true,
+		"message": "技能降低成功，返还 1 点技能点",
+		"skill_id": skill_id,
+		"rank": next_rank,
+		"unspent_points": unspent_points,
+	}
+
+
 func _failure(message: String) -> Dictionary:
 	return {"ok": false, "message": message}

@@ -18,7 +18,7 @@ position = Vector2(100, 560)
 interaction_radius = 82.0
 target_map_id = &"field_passage_1"
 target_entry_id = &"from_field_passage_3"
-interaction_prompt = "按 W 返回 野外通道-1"
+interaction_prompt = "按 ↑ 返回 野外通道-1"
 
 [resource]
 script = ExtResource("1")

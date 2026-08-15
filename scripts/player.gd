@@ -511,6 +511,30 @@ func increase_skill_rank(skill_id: StringName) -> Dictionary:
 	return result
 
 
+func get_skill_rank_down_status(skill_id: StringName) -> Dictionary:
+	if _current_skill_definition != null and _current_skill_definition.id == skill_id:
+		return {"ok": false, "message": "技能施放期间不能减点"}
+	return _skill_progress.get_rank_down_status(skill_id, get_profession_id())
+
+
+func decrease_skill_rank(skill_id: StringName) -> Dictionary:
+	var status := get_skill_rank_down_status(skill_id)
+	if not bool(status.get("ok", false)):
+		return status
+	var old_max := get_max_health()
+	var result := _skill_progress.decrease_rank(skill_id, get_profession_id())
+	if not bool(result.get("ok", false)):
+		return result
+	if get_skill_rank(skill_id) <= 0:
+		for slot_index in _skill_quickbar.size():
+			if _skill_quickbar[slot_index] == skill_id:
+				_skill_quickbar[slot_index] = &""
+	_rebuild_passive_skill_modifiers()
+	_apply_stats_change(old_max)
+	skills_changed.emit()
+	return result
+
+
 func get_skill_quickbar() -> Array[StringName]:
 	return _skill_quickbar.duplicate()
 

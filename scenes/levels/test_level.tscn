@@ -57,7 +57,7 @@ grow_horizontal = 2
 grow_vertical = 0
 theme_override_colors/font_color = Color(0.49, 0.85, 1, 1)
 theme_override_font_sizes/font_size = 22
-text = "按 W 进入传送门"
+text = "按 ↑ 进入传送门"
 horizontal_alignment = 1
 vertical_alignment = 1
 
@@ -94,7 +94,7 @@ offset_right = 900.0
 offset_bottom = 94.0
 theme_override_colors/font_color = Color(0.68, 0.78, 0.76, 1)
 theme_override_font_sizes/font_size = 16
-text = "A / D 移动    W 传送门交互    S 蹲下 + 空格 下落    空格 跳跃    J 轻攻击    K 重攻击    E 角色信息    I 装备背包    P 技能"
+text = "← / → 移动    ↑ 交互    ↓ 蹲下 + 空格 下落    空格 跳跃    Z 轻攻击    X 重攻击    E 角色状态    I 装备背包    K 职业技能"
 
 [node name="HealthPanel" type="Control" parent="Interface"]
 layout_mode = 3
@@ -320,7 +320,7 @@ offset_right = 900.0
 offset_bottom = 454.0
 theme_override_colors/font_color = Color(0.68, 0.78, 0.76, 1)
 theme_override_font_sizes/font_size = 15
-text = "W / A / S / D 选择    J 装备    K 丢弃    E 角色信息    I / Esc 关闭    鼠标悬停查看、左键装备"
+text = "方向键选择    Z 装备    X 丢弃    E 角色状态    I / Esc 关闭    鼠标悬停查看、左键装备"
 horizontal_alignment = 1
 mouse_filter = 2
 
@@ -352,7 +352,7 @@ offset_bottom = 314.0
 theme_override_colors/font_color = Color(0.95, 0.91, 0.79, 1)
 theme_override_constants/line_spacing = 4
 theme_override_font_sizes/font_size = 16
-text = "确定丢弃这件装备？\n\nJ 确认    Esc 取消"
+text = "确定丢弃这件装备？\n\nZ 确认    Esc 取消"
 autowrap_mode = 2
 horizontal_alignment = 1
 mouse_filter = 2
@@ -449,13 +449,29 @@ mouse_filter = 2
 offset_left = 16.0
 offset_top = 14.0
 offset_right = 414.0
-offset_bottom = 278.0
+offset_bottom = 228.0
 theme_override_colors/font_color = Color(0.92, 0.96, 0.92, 1)
 theme_override_constants/line_spacing = 5
 theme_override_font_sizes/font_size = 15
 text = "选择技能查看详情"
 autowrap_mode = 2
 mouse_filter = 2
+
+[node name="DecreaseButton" type="Button" parent="Interface/SkillsPanel/DetailPanel"]
+offset_left = 258.0
+offset_top = 236.0
+offset_right = 324.0
+offset_bottom = 276.0
+focus_mode = 0
+text = "－"
+
+[node name="IncreaseButton" type="Button" parent="Interface/SkillsPanel/DetailPanel"]
+offset_left = 332.0
+offset_top = 236.0
+offset_right = 398.0
+offset_bottom = 276.0
+focus_mode = 0
+text = "＋"
 
 [node name="QuickbarText" type="Label" parent="Interface/SkillsPanel"]
 offset_left = 24.0
@@ -485,7 +501,7 @@ offset_right = 896.0
 offset_bottom = 494.0
 theme_override_colors/font_color = Color(0.68, 0.78, 0.76, 1)
 theme_override_font_sizes/font_size = 14
-text = "W / S 选择    J 加点    1 / 2 配置主动技能    E / I 切换窗口    P / Esc 关闭"
+text = "鼠标选择技能并使用 ＋ / － 调整等级    1 / 2 配置主动技能    E / I 切换窗口    K / Esc 关闭"
 horizontal_alignment = 1
 mouse_filter = 2
 
@@ -527,7 +543,7 @@ offset_right = 428.0
 offset_bottom = 48.0
 theme_override_colors/font_color = Color(0.95, 0.84, 0.42, 1)
 theme_override_font_sizes/font_size = 24
-text = "角色信息"
+text = "角色状态"
 horizontal_alignment = 1
 mouse_filter = 2
 
@@ -570,7 +586,7 @@ offset_right = 430.0
 offset_bottom = 166.0
 theme_override_colors/font_color = Color(0.86, 0.91, 0.88, 1)
 theme_override_font_sizes/font_size = 16
-text = "装备（W / S 选择，J 卸下）"
+text = "装备（↑ / ↓ 选择，Z 卸下）"
 mouse_filter = 2
 
 [node name="EquipmentList" type="VBoxContainer" parent="Interface/AttributesPanel"]
@@ -657,6 +673,6 @@ offset_right = 424.0
 offset_bottom = 666.0
 theme_override_colors/font_color = Color(0.68, 0.78, 0.76, 1)
 theme_override_font_sizes/font_size = 15
-text = "W / S 选择    J 卸下    I 背包    E / Esc 关闭"
+text = "↑ / ↓ 选择    Z 卸下    I 背包    E / Esc 关闭"
 horizontal_alignment = 1
 mouse_filter = 2

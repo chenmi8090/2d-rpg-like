@@ -25,7 +25,7 @@ position = Vector2(3150, 560)
 interaction_radius = 82.0
 target_map_id = &"field_passage_1"
 target_entry_id = &"from_test_level"
-interaction_prompt = "按 W 前往 野外通道-1"
+interaction_prompt = "按 ↑ 前往 野外通道-1"
 
 [sub_resource type="Resource" id="CheckpointDefault"]
 script = ExtResource("4")
